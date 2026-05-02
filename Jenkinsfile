@@ -21,9 +21,11 @@ pipeline {
         stage('Init') {
             steps {
                 script {
+                    echo "[STAGE_START] Init"
                     echo "[INFO] DEPLOY_TARGET: ${params.DEPLOY_TARGET}"
                     echo "[INFO] REPO_URL: ${params.REPO_URL}"
                     echo "[INFO] APP_NAME: ${params.APP_NAME}"
+                    echo "[STAGE_SUCCESS] Init"
                 }
             }
         }
@@ -31,12 +33,12 @@ pipeline {
         stage('Input Repo') {
             steps {
                 script {
+                    echo "[STAGE_START] Input Repo"
                     def repoUrl = params.REPO_URL?.trim()
                     def appName = params.APP_NAME?.trim()
                     if (!repoUrl) error('REPO_URL is required')
                     if (!appName) error('APP_NAME is required')
 
-                    // FIX: single-quote sh script — no Groovy interpolation needed here
                     def appId = sh(script: 'printf "%s" "' + repoUrl + '" | md5sum | cut -c1-6', returnStdout: true).trim()
 
                     env.REPO_URL       = repoUrl
@@ -47,7 +49,9 @@ pipeline {
                     env.PKG_ROOT       = 'app'
                     env.CONTAINER_PORT = '3000'
 
-                    echo "[META] APP_ID=${appId} | IMAGE=${env.IMAGE_NAME}"
+                    echo "[META] APP_ID=${appId}"
+                    echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "[STAGE_SUCCESS] Input Repo"
                 }
             }
         }
@@ -55,6 +59,7 @@ pipeline {
         stage('Select Deploy Mode') {
             steps {
                 script {
+                    echo "[STAGE_START] Select Deploy Mode"
                     if (params.DEPLOY_TARGET == 'local') {
                         env.DEPLOY_MODE = 'local'
                         env.DEPLOY_HOST = env.LOCAL_HOST
@@ -64,7 +69,9 @@ pipeline {
                         env.DEPLOY_HOST = env.AWS_HOST
                         env.DEPLOY_USER = env.AWS_SSH_USER
                     }
-                    echo "[META] DEPLOY_MODE=${env.DEPLOY_MODE} | HOST=${env.DEPLOY_HOST}"
+                    echo "[META] DEPLOY_MODE=${env.DEPLOY_MODE}"
+                    echo "[META] DEPLOY_HOST=${env.DEPLOY_HOST}"
+                    echo "[STAGE_SUCCESS] Select Deploy Mode"
                 }
             }
         }
@@ -72,8 +79,8 @@ pipeline {
         stage('Allocate Port') {
             steps {
                 script {
+                    echo "[STAGE_START] Allocate Port"
                     if (env.DEPLOY_MODE == 'local') {
-                        // FIX: single-quote sh script so {{.Ports}} is NOT parsed by Groovy
                         def used = sh(
                             script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]+\' | grep -v \'^$\' || true',
                             returnStdout: true
@@ -86,20 +93,25 @@ pipeline {
                         env.PORT = '80'
                     }
                     echo "[META] PORT=${env.PORT}"
+                    echo "[STAGE_SUCCESS] Allocate Port"
                 }
             }
         }
 
         stage('Clone Repo') {
             steps {
-                // FIX: use double-quotes so $REPO_URL is expanded by the shell (it's an env var)
-                sh "rm -rf app && git clone --depth=1 \"\$REPO_URL\" app"
+                script {
+                    echo "[STAGE_START] Clone Repo"
+                    sh "rm -rf app && git clone --depth=1 \"\$REPO_URL\" app"
+                    echo "[STAGE_SUCCESS] Clone Repo"
+                }
             }
         }
 
         stage('Setup Docker Ignore') {
             steps {
                 script {
+                    echo "[STAGE_START] Setup Docker Ignore"
                     writeFile file: 'app/.dockerignore', text: '''\
 .git
 .gitignore
@@ -155,6 +167,7 @@ target
 .terraform
 .serverless
 '''
+                    echo "[STAGE_SUCCESS] Setup Docker Ignore"
                 }
             }
         }
@@ -162,7 +175,7 @@ target
         stage('Secret Scan') {
             steps {
                 script {
-                    // FIX: single-quote the sh script — no Groovy interpolation needed
+                    echo "[STAGE_START] Secret Scan"
                     def result = sh(
                         script: 'grep -rniE "(password|api_key|secret|token)\\s*=\\s*.{8,}" app --include="*.js" --include="*.ts" --include="*.py" --include="*.env" --exclude-dir=node_modules --exclude-dir=.git || true',
                         returnStdout: true
@@ -173,6 +186,7 @@ target
                     } else {
                         echo "[META] SECRET_SCAN=PASSED"
                     }
+                    echo "[STAGE_SUCCESS] Secret Scan"
                 }
             }
         }
@@ -180,6 +194,7 @@ target
         stage('Detect Stack') {
             steps {
                 script {
+                    echo "[STAGE_START] Detect Stack"
                     def stack   = 'node'
                     def pkgRoot = 'app'
                     def entry   = 'index.js'
@@ -220,7 +235,10 @@ target
                     env.STACK    = stack
                     env.PKG_ROOT = pkgRoot
                     env.ENTRY_PT = entry
-                    echo "[META] STACK=${stack} | PKG_ROOT=${pkgRoot} | ENTRY=${entry}"
+                    echo "[META] STACK=${stack}"
+                    echo "[META] PKG_ROOT=${pkgRoot}"
+                    echo "[META] ENTRY_PT=${entry}"
+                    echo "[STAGE_SUCCESS] Detect Stack"
                 }
             }
         }
@@ -228,16 +246,18 @@ target
         stage('Dependency Audit') {
             steps {
                 script {
+                    echo "[STAGE_START] Dependency Audit"
                     if (fileExists("${env.PKG_ROOT}/package.json")) {
-                        // FIX: escape $ as \$ so shell handles it, not Groovy
                         sh "docker run --rm -v \"\$(pwd)/${env.PKG_ROOT}:/work\" -w /work node:20-alpine sh -c 'npm install --prefer-offline --ignore-scripts 2>&1 | tail -5 && npm audit --json 2>/dev/null || true' > /tmp/audit.txt 2>&1 || true"
                         def out = readFile('/tmp/audit.txt')
                         def crit = (out =~ /"critical":(\d+)/) ? (out =~ /"critical":(\d+)/)[0][1] : '0'
                         def high = (out =~ /"high":(\d+)/)     ? (out =~ /"high":(\d+)/)[0][1]     : '0'
-                        echo "[META] VULN_CRITICAL=${crit} | VULN_HIGH=${high}"
+                        echo "[META] VULN_CRITICAL=${crit}"
+                        echo "[META] VULN_HIGH=${high}"
                     } else {
                         echo "[INFO] No package.json — skipping audit"
                     }
+                    echo "[STAGE_SUCCESS] Dependency Audit"
                 }
             }
         }
@@ -245,6 +265,7 @@ target
         stage('Create Dockerfile') {
             steps {
                 script {
+                    echo "[STAGE_START] Create Dockerfile"
                     def dfPath = "${env.PKG_ROOT}/Dockerfile"
                     if (fileExists(dfPath)) {
                         echo '[INFO] Dockerfile exists in repo — using as-is'
@@ -330,26 +351,35 @@ target
                         writeFile file: dfPath, text: df
                         echo "[INFO] Dockerfile created — stack: ${env.STACK}"
                     }
+                    echo "[STAGE_SUCCESS] Create Dockerfile"
                 }
             }
         }
 
         stage('Build Image') {
             steps {
-                // FIX: escape $ so shell expands the env vars, not Groovy
-                sh 'DOCKER_BUILDKIT=1 docker build --progress=plain -t "$IMAGE_NAME" "$PKG_ROOT/"'
+                script {
+                    echo "[STAGE_START] Build Image"
+                    sh 'DOCKER_BUILDKIT=1 docker build --progress=plain -t "$IMAGE_NAME" "$PKG_ROOT/"'
+                    echo "[STAGE_SUCCESS] Build Image"
+                }
             }
         }
 
         stage('Push to DockerHub') {
             steps {
-                sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin && docker push "$IMAGE_NAME" && docker logout'
+                script {
+                    echo "[STAGE_START] Push to DockerHub"
+                    sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin && docker push "$IMAGE_NAME" && docker logout'
+                    echo "[STAGE_SUCCESS] Push to DockerHub"
+                }
             }
         }
 
         stage('Deploy') {
             steps {
                 script {
+                    echo "[STAGE_START] Deploy"
                     if (env.DEPLOY_MODE == 'local') {
                         sh """
                             docker stop ${env.CONTAINER_NAME} 2>/dev/null || true
@@ -357,7 +387,7 @@ target
                             docker pull ${env.IMAGE_NAME}
                             docker run -d --name ${env.CONTAINER_NAME} --restart unless-stopped -p 0.0.0.0:${env.PORT}:${env.CONTAINER_PORT} ${env.IMAGE_NAME}
                         """
-                        echo "APP URL: http://${env.LOCAL_HOST}:${env.PORT}"
+                        echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
                     } else {
                         sh """
                             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${env.AWS_SSH_USER}@${env.AWS_HOST} \
@@ -366,8 +396,9 @@ target
                                docker rm   ${env.CONTAINER_NAME} 2>/dev/null; \
                                docker run -d --name ${env.CONTAINER_NAME} --restart unless-stopped -p 0.0.0.0:80:${env.CONTAINER_PORT} ${env.IMAGE_NAME}'
                         """
-                        echo "APP URL: http://${env.AWS_HOST}"
+                        echo "[META] URL=http://${env.AWS_HOST}"
                     }
+                    echo "[STAGE_SUCCESS] Deploy"
                 }
             }
         }
@@ -375,9 +406,9 @@ target
         stage('Verify') {
             steps {
                 script {
+                    echo "[STAGE_START] Verify"
                     sleep 3
                     if (env.DEPLOY_MODE == 'local') {
-                        // FIX: single-quote sh so {{.Names}} is not parsed by Groovy
                         def running = sh(
                             script: "docker ps --format '{{.Names}}' | grep -c '${env.CONTAINER_NAME}' || true",
                             returnStdout: true
@@ -392,6 +423,7 @@ target
                     } else {
                         sh "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ${env.DEPLOY_USER}@${env.DEPLOY_HOST} 'docker ps --filter name=${env.CONTAINER_NAME}' || true"
                     }
+                    echo "[STAGE_SUCCESS] Verify"
                 }
             }
         }
