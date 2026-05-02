@@ -2,30 +2,18 @@ pipeline {
     agent any
 
     parameters {
-        string(
-            name: 'REPO_URL',
-            defaultValue: '',
-            description: 'GitHub repository URL to deploy'
-        )
-        string(
-            name: 'APP_NAME',
-            defaultValue: '',
-            description: 'Unique app name (letters, numbers, hyphens only)'
-        )
-        choice(
-            name: 'DEPLOY_TARGET',
-            choices: ['local', 'aws'],
-            description: 'Deployment target: local VM or AWS EC2'
-        )
+        string(name: 'REPO_URL',      defaultValue: '', description: 'GitHub repository URL to deploy')
+        string(name: 'APP_NAME',      defaultValue: '', description: 'Unique app name (letters, numbers, hyphens only)')
+        choice(name: 'DEPLOY_TARGET', choices: ['local', 'aws'], description: 'Deployment target: local VM or AWS EC2')
     }
 
     environment {
-        DOCKERHUB_CRED  = credentials('dockerhub-cred')
-        DOCKERHUB_USER  = 'raheeljamal'
-        AWS_HOST        = "${env.AWS_EC2_IP ?: 'YOUR_EC2_PUBLIC_IP'}"
-        LOCAL_HOST      = '192.168.122.127'
-        LOCAL_SSH_USER  = 'ubuntu'
-        AWS_SSH_USER    = 'ubuntu'
+        DOCKERHUB_CRED = credentials('dockerhub-cred')
+        DOCKERHUB_USER = 'raheeljamal'
+        AWS_HOST       = "${env.AWS_EC2_IP ?: 'YOUR_EC2_PUBLIC_IP'}"
+        LOCAL_HOST     = '192.168.122.127'
+        LOCAL_SSH_USER = 'ubuntu'
+        AWS_SSH_USER   = 'ubuntu'
     }
 
     stages {
@@ -49,17 +37,12 @@ pipeline {
             steps {
                 script {
                     echo '[STAGE_START] Input Repo'
-
                     def repoUrl = params.REPO_URL?.trim()
                     def appName = params.APP_NAME?.trim()
-
                     if (!repoUrl) error('[ERROR] REPO_URL is required')
                     if (!appName) error('[ERROR] APP_NAME is required')
 
-                    def appId = sh(
-                        script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
-                        returnStdout: true
-                    ).trim()
+                    def appId = sh(script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6", returnStdout: true).trim()
 
                     env.REPO_URL       = repoUrl
                     env.APP_NAME       = appName
@@ -83,7 +66,6 @@ pipeline {
             steps {
                 script {
                     echo '[STAGE_START] Select Deployment Mode'
-
                     if (params.DEPLOY_TARGET == 'local') {
                         env.DEPLOY_MODE = 'local'
                         env.DEPLOY_HOST = env.LOCAL_HOST
@@ -97,7 +79,6 @@ pipeline {
                     } else {
                         error('[ERROR] Invalid DEPLOY_TARGET. Must be local or aws.')
                     }
-
                     echo "[META] DEPLOY_MODE=${env.DEPLOY_MODE}"
                     echo "[META] DEPLOY_HOST=${env.DEPLOY_HOST}"
                     echo '[STAGE_SUCCESS] Select Deployment Mode'
@@ -110,13 +91,8 @@ pipeline {
             steps {
                 script {
                     echo '[STAGE_START] Allocate Safe Port'
-
                     if (env.DEPLOY_MODE == 'local') {
-                        def usedRaw = sh(
-                            script: "docker ps --format '{{.Ports}}' | grep -oP '[0-9]+(?=->)' || true",
-                            returnStdout: true
-                        ).trim()
-
+                        def usedRaw = sh(script: "docker ps --format '{{.Ports}}' | grep -oP '[0-9]+(?=->)' || true", returnStdout: true).trim()
                         def usedPorts = usedRaw ? usedRaw.split('\n').collect { it.trim() } : []
                         def port = 3000
                         while (usedPorts.contains(port.toString())) { port++ }
@@ -124,7 +100,6 @@ pipeline {
                     } else {
                         env.PORT = '80'
                     }
-
                     echo "[META] PORT=${env.PORT}"
                     echo '[STAGE_SUCCESS] Allocate Safe Port'
                 }
@@ -141,42 +116,37 @@ pipeline {
         }
 
         // ── Stage 6 ───────────────────────────────────────────────────────────
-        // ROOT FIX: .dockerignore is written with Groovy writeFile() — completely
-        // bypasses the shell, so NO heredoc quoting issues are possible at all.
+        // FIX: writeFile() runs in Groovy/Java — never touches the shell.
+        //      No heredoc, no quoting issues whatsoever.
         stage('Setup Docker Ignore') {
             steps {
                 script {
                     echo '[STAGE_START] Setup Docker Ignore'
-
                     writeFile file: 'app/.dockerignore', text: [
                         '# VCS', '.git', '.gitignore', '.gitattributes',
-                        '# Deps', 'node_modules', 'bower_components', 'vendor', '.pnp', '.pnp.js',
-                        '# Build', 'dist', 'build', 'out', '.next', '.nuxt', '.vite', '.cache', '*.tsbuildinfo',
+                        '# Dependencies', 'node_modules', 'bower_components', 'vendor', '.pnp', '.pnp.js',
+                        '# Build outputs', 'dist', 'build', 'out', '.next', '.nuxt', '.vite', '.cache', '*.tsbuildinfo',
                         '# Tests', 'coverage', '.nyc_output', '__tests__',
                         '**/*.test.js', '**/*.spec.js', '**/*.test.ts', '**/*.spec.ts',
                         'jest.config.*', 'cypress', 'playwright',
-                        '# Tooling', '.eslintrc*', '.prettierrc*', '.editorconfig',
-                        '.stylelintrc*', '.husky', '.lint-staged*',
-                        '# Logs', '*.log', 'logs',
-                        'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
+                        '# Tooling', '.eslintrc*', '.prettierrc*', '.editorconfig', '.stylelintrc*', '.husky', '.lint-staged*',
+                        '# Logs', '*.log', 'logs', 'npm-debug.log*', 'yarn-debug.log*', 'yarn-error.log*',
                         '# Secrets', '.env', '.env.*', '*.pem', '*.key', '*.cert', 'secrets',
                         '# OS', '.DS_Store', 'Thumbs.db', '*.swp', '*~',
                         '# Docker', 'Dockerfile*', 'docker-compose*', '.dockerignore',
-                        '# CI/Docs', '.github', '.circleci', 'docs',
-                        '*.md', 'README*', 'CHANGELOG*', 'LICENSE*',
+                        '# CI/Docs', '.github', '.circleci', 'docs', '*.md', 'README*', 'CHANGELOG*', 'LICENSE*',
                         '# Python', '__pycache__', '*.pyc', '*.pyo', '.venv', 'venv', 'env', '*.egg-info',
                         '# Java', 'target', '.gradle', '*.class', '*.jar', '*.war',
                         '# Misc', '.terraform', '.serverless'
                     ].join('\n')
-
                     echo '[STAGE_SUCCESS] Setup Docker Ignore'
                 }
             }
         }
 
         // ── Stage 7 ───────────────────────────────────────────────────────────
-        // FIX: Plain sh block — no heredoc, no quote nesting.
-        //      Uses -print0 + read -d '' for safe filename handling.
+        // FIX: All backslash line-continuations removed — find command is one
+        //      single line so Groovy never sees a trailing backslash.
         stage('Secret Scan') {
             steps {
                 script { echo '[STAGE_START] Secret Scan' }
@@ -188,10 +158,7 @@ while IFS= read -r -d "" f; do
         echo "[WARN] Potential secret in: $f"
         FOUND=1
     fi
-done < <(find app -type f \( -name "*.js" -o -name "*.py" -o -name "*.env" -o -name "*.ts" \) \
-    -not -path "*/node_modules/*" \
-    -not -path "*/.git/*" \
-    -print0)
+done < <(find app -type f \( -name "*.js" -o -name "*.py" -o -name "*.env" -o -name "*.ts" \) -not -path "*/node_modules/*" -not -path "*/.git/*" -print0)
 if [ "$FOUND" = "1" ]; then
     echo "[META] SECRET_SCAN=FAILED"
     exit 1
@@ -207,12 +174,10 @@ echo "[META] SECRET_SCAN=PASSED"
             steps {
                 script {
                     echo '[STAGE_START] Detect Stack'
-
                     def stack   = 'node'
                     def pkgRoot = 'app'
                     def entryPt = 'index.js'
 
-                    // Monorepo probe
                     for (sub in ['packages','apps','services','frontend','backend','client','server','api','web']) {
                         if (fileExists("app/${sub}/package.json")) {
                             pkgRoot = "app/${sub}"
@@ -224,12 +189,11 @@ echo "[META] SECRET_SCAN=PASSED"
                     def pkgJsonPath = "${pkgRoot}/package.json"
                     if (fileExists(pkgJsonPath)) {
                         def pkg = readFile(pkgJsonPath)
-                        if      (pkg.contains('"vite"'))    stack = 'vite'
-                        else if (pkg.contains('"next"'))    stack = 'nextjs'
-                        else if (pkg.contains('"react"'))   stack = 'react'
-                        else if (pkg.contains('"express"') || pkg.contains('"fastify"') || pkg.contains('"koa"'))
-                                                            stack = 'node-server'
-                        else                                stack = 'node'
+                        if      (pkg.contains('"vite"'))                                                        stack = 'vite'
+                        else if (pkg.contains('"next"'))                                                        stack = 'nextjs'
+                        else if (pkg.contains('"react"'))                                                       stack = 'react'
+                        else if (pkg.contains('"express"') || pkg.contains('"fastify"') || pkg.contains('"koa"')) stack = 'node-server'
+                        else                                                                                    stack = 'node'
 
                         def mainMatch  = (pkg =~ /"main"\s*:\s*"([^"]+)"/)
                         def startMatch = (pkg =~ /"start"\s*:\s*"[^"]*node\s+([^\s"]+)"/)
@@ -252,7 +216,6 @@ echo "[META] SECRET_SCAN=PASSED"
                     env.STACK    = stack
                     env.PKG_ROOT = pkgRoot
                     env.ENTRY_PT = entryPt
-
                     echo "[META] STACK=${env.STACK}"
                     echo "[META] PKG_ROOT=${env.PKG_ROOT}"
                     echo "[META] ENTRY_PT=${env.ENTRY_PT}"
@@ -262,6 +225,8 @@ echo "[META] SECRET_SCAN=PASSED"
         }
 
         // ── Stage 9 ───────────────────────────────────────────────────────────
+        // FIX: docker run command collapsed to one line — no trailing backslashes
+        //      inside the sh ''' block.
         stage('Dependency Audit') {
             steps {
                 script { echo '[STAGE_START] Dependency Audit' }
@@ -269,10 +234,7 @@ echo "[META] SECRET_SCAN=PASSED"
 set +e
 if [ -f "${PKG_ROOT}/package.json" ]; then
     echo "[INFO] Running npm audit in ${PKG_ROOT}..."
-    docker run --rm \
-        -v "$(pwd)/${PKG_ROOT}:/work" -w /work node:20-alpine \
-        sh -c "npm install --prefer-offline --ignore-scripts 2>&1 | tail -5 && npm audit --json 2>/dev/null || true" \
-        > /tmp/audit_out.txt 2>&1
+    docker run --rm -v "$(pwd)/${PKG_ROOT}:/work" -w /work node:20-alpine sh -c "npm install --prefer-offline --ignore-scripts 2>&1 | tail -5 && npm audit --json 2>/dev/null || true" > /tmp/audit_out.txt 2>&1
     CRITICAL=$(grep -o '"critical":[0-9]*' /tmp/audit_out.txt | grep -o '[0-9]*' | head -1 || echo 0)
     HIGH=$(grep -o '"high":[0-9]*' /tmp/audit_out.txt | grep -o '[0-9]*' | head -1 || echo 0)
     echo "[META] VULN_CRITICAL=${CRITICAL:-0}"
@@ -290,15 +252,13 @@ fi
         }
 
         // ── Stage 10 ──────────────────────────────────────────────────────────
-        // FIX: All Dockerfile content built as a Groovy string and written with
-        //      writeFile() — zero shell involved, zero heredoc quoting risk.
+        // FIX: Dockerfile written with Groovy writeFile() — zero shell involved.
         //      Multi-stage builds for vite/react/nextjs/java.
-        //      All images bind 0.0.0.0 so host browser can reach the app.
+        //      All images explicitly bind 0.0.0.0 for host browser access.
         stage('Create Dockerfile') {
             steps {
                 script {
                     echo '[STAGE_START] Create Dockerfile'
-
                     def dfPath = "${env.PKG_ROOT}/Dockerfile"
 
                     if (fileExists(dfPath)) {
@@ -308,7 +268,6 @@ fi
                         def df    = ''
 
                         switch (env.STACK) {
-
                             case 'vite':
                             case 'react':
                                 df = 'FROM node:20-alpine AS builder\n' +
@@ -316,8 +275,7 @@ fi
                                      'COPY package*.json ./\n' +
                                      'RUN npm ci --ignore-scripts\n' +
                                      'COPY . .\n' +
-                                     'RUN npm run build\n' +
-                                     '\n' +
+                                     'RUN npm run build\n\n' +
                                      'FROM nginx:alpine\n' +
                                      'COPY --from=builder /app/dist /usr/share/nginx/html\n' +
                                      'RUN printf "server {\\n  listen 80;\\n  root /usr/share/nginx/html;\\n  index index.html;\\n  location / { try_files $uri $uri/ /index.html; }\\n}\\n" > /etc/nginx/conf.d/default.conf\n' +
@@ -333,8 +291,7 @@ fi
                                      'RUN npm ci --ignore-scripts\n' +
                                      'COPY . .\n' +
                                      'ENV NEXT_TELEMETRY_DISABLED=1\n' +
-                                     'RUN npm run build\n' +
-                                     '\n' +
+                                     'RUN npm run build\n\n' +
                                      'FROM node:20-alpine\n' +
                                      'WORKDIR /app\n' +
                                      'ENV NODE_ENV=production\n' +
@@ -367,8 +324,7 @@ fi
                                      'COPY pom.xml ./\n' +
                                      'RUN mvn dependency:go-offline -q\n' +
                                      'COPY src ./src\n' +
-                                     'RUN mvn package -DskipTests -q\n' +
-                                     '\n' +
+                                     'RUN mvn package -DskipTests -q\n\n' +
                                      'FROM eclipse-temurin:17-jre-alpine\n' +
                                      'WORKDIR /app\n' +
                                      'COPY --from=builder /app/target/*.jar app.jar\n' +
@@ -377,7 +333,7 @@ fi
                                 env.CONTAINER_PORT = '3000'
                                 break
 
-                            default: // node / node-server
+                            default:
                                 df = 'FROM node:20-alpine\n' +
                                      'WORKDIR /app\n' +
                                      'COPY package*.json ./\n' +
@@ -404,10 +360,7 @@ fi
         stage('Build Image') {
             steps {
                 script { echo '[STAGE_START] Build Image' }
-                sh '''
-export DOCKER_BUILDKIT=1
-docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t "${IMAGE_NAME}" "${PKG_ROOT}/"
-'''
+                sh 'export DOCKER_BUILDKIT=1 && docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t "${IMAGE_NAME}" "${PKG_ROOT}/"'
                 script { echo '[STAGE_SUCCESS] Build Image' }
             }
         }
@@ -416,16 +369,15 @@ docker build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 -t "${IMAGE_NA
         stage('Push to DockerHub') {
             steps {
                 script { echo '[STAGE_START] Push to DockerHub' }
-                sh '''
-echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin
-docker push "${IMAGE_NAME}"
-docker logout
-'''
+                sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin && docker push "${IMAGE_NAME}" && docker logout'
                 script { echo '[STAGE_SUCCESS] Push to DockerHub' }
             }
         }
 
         // ── Stage 13 ──────────────────────────────────────────────────────────
+        // NOTE: sh """ (double-quote) blocks are fine with \\ line continuations
+        //       because Groovy processes \\\\ → \\ before bash sees them.
+        //       Only sh ''' (single-quote) blocks are unsafe with trailing \.
         stage('Deploy') {
             steps {
                 script {
@@ -434,34 +386,27 @@ docker logout
                     if (env.DEPLOY_MODE == 'local') {
                         echo '[INFO] LOCAL VM deployment...'
                         sh """
-                            docker stop ${CONTAINER_NAME} 2>/dev/null || true
-                            docker rm   ${CONTAINER_NAME} 2>/dev/null || true
-                            docker pull ${IMAGE_NAME}
+                            docker stop ${env.CONTAINER_NAME} 2>/dev/null || true
+                            docker rm   ${env.CONTAINER_NAME} 2>/dev/null || true
+                            docker pull ${env.IMAGE_NAME}
                             docker run -d \\
-                                --name ${CONTAINER_NAME} \\
+                                --name ${env.CONTAINER_NAME} \\
                                 --restart unless-stopped \\
-                                -p 0.0.0.0:${PORT}:${CONTAINER_PORT} \\
-                                ${IMAGE_NAME}
+                                -p 0.0.0.0:${env.PORT}:${env.CONTAINER_PORT} \\
+                                ${env.IMAGE_NAME}
                         """
-                        echo "[META] URL=http://${LOCAL_HOST}:${PORT}"
-                        echo "LOCAL URL: http://${LOCAL_HOST}:${PORT}"
+                        echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
+                        echo "LOCAL URL: http://${env.LOCAL_HOST}:${env.PORT}"
 
                     } else if (env.DEPLOY_MODE == 'aws') {
                         echo '[INFO] AWS EC2 deployment...'
                         sh """
                             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \\
-                                ${AWS_SSH_USER}@${AWS_HOST} \\
-                                'docker pull ${IMAGE_NAME} && \\
-                                 docker stop ${CONTAINER_NAME} 2>/dev/null; \\
-                                 docker rm   ${CONTAINER_NAME} 2>/dev/null; \\
-                                 docker run -d \\
-                                     --name ${CONTAINER_NAME} \\
-                                     --restart unless-stopped \\
-                                     -p 0.0.0.0:80:${CONTAINER_PORT} \\
-                                     ${IMAGE_NAME}'
+                                ${env.AWS_SSH_USER}@${env.AWS_HOST} \\
+                                'docker pull ${env.IMAGE_NAME} && docker stop ${env.CONTAINER_NAME} 2>/dev/null; docker rm ${env.CONTAINER_NAME} 2>/dev/null; docker run -d --name ${env.CONTAINER_NAME} --restart unless-stopped -p 0.0.0.0:80:${env.CONTAINER_PORT} ${env.IMAGE_NAME}'
                         """
-                        echo "[META] URL=http://${AWS_HOST}"
-                        echo "AWS URL: http://${AWS_HOST}"
+                        echo "[META] URL=http://${env.AWS_HOST}"
+                        echo "AWS URL: http://${env.AWS_HOST}"
                     }
 
                     echo '[STAGE_SUCCESS] Deploy'
@@ -470,6 +415,8 @@ docker logout
         }
 
         // ── Stage 14 ──────────────────────────────────────────────────────────
+        // FIX: curl and ssh commands collapsed to single lines — no trailing
+        //      backslashes inside the sh ''' block.
         stage('Verify') {
             steps {
                 script { echo '[STAGE_START] Verify' }
@@ -480,16 +427,12 @@ if [ "${DEPLOY_MODE}" = "local" ]; then
     if docker ps --format "{{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
         echo "[INFO] Container is running"
         docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-        curl -sf --max-time 10 "http://localhost:${PORT}/" -o /dev/null \
-            && echo "[INFO] HTTP check PASSED" \
-            || echo "[WARN] HTTP check failed — app may still be starting"
+        curl -sf --max-time 10 "http://localhost:${PORT}/" -o /dev/null && echo "[INFO] HTTP check PASSED" || echo "[WARN] HTTP check failed — app may still be starting"
     else
         echo "[WARN] Container ${CONTAINER_NAME} not found"
     fi
 else
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
-        "${DEPLOY_USER}@${DEPLOY_HOST}" \
-        "docker ps --filter name=${CONTAINER_NAME} --format table" || true
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 "${DEPLOY_USER}@${DEPLOY_HOST}" "docker ps --filter name=${CONTAINER_NAME} --format table" || true
 fi
 '''
                 script { echo '[STAGE_SUCCESS] Verify' }
