@@ -72,7 +72,8 @@ pipeline {
             steps {
                 script {
                     if (env.DEPLOY_MODE == 'local') {
-                        def used = sh(script: "docker ps --format '{{.Ports}}' | grep -oP '[0-9]+(?=->)' || true", returnStdout: true).trim()
+                        // FIXED: Convert grep output to simple string to avoid Matcher serialization issue
+                        def used = sh(script: "docker ps --format '{{.Ports}}' | grep -o '[0-9]\\+' | grep -v '^$' || true", returnStdout: true).trim()
                         def usedList = used ? used.split('\n').collect { it.trim() } : []
                         def port = 3000
                         while (usedList.contains(port.toString())) { port++ }
