@@ -36,7 +36,8 @@ pipeline {
                     if (!repoUrl) error('REPO_URL is required')
                     if (!appName) error('APP_NAME is required')
 
-                    def appId = sh(script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6", returnStdout: true).trim()
+                    // FIX: single-quote sh script — no Groovy interpolation needed here
+                    def appId = sh(script: 'printf "%s" "' + repoUrl + '" | md5sum | cut -c1-6', returnStdout: true).trim()
 
                     env.REPO_URL       = repoUrl
                     env.APP_NAME       = appName
@@ -72,8 +73,11 @@ pipeline {
             steps {
                 script {
                     if (env.DEPLOY_MODE == 'local') {
-                        // FIXED: Convert grep output to simple string to avoid Matcher serialization issue
-                        def used = sh(script: "docker ps --format '{{.Ports}}' | grep -o '[0-9]\\+' | grep -v '^$' || true", returnStdout: true).trim()
+                        // FIX: single-quote sh script so {{.Ports}} is NOT parsed by Groovy
+                        def used = sh(
+                            script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]+\' | grep -v \'^$\' || true',
+                            returnStdout: true
+                        ).trim()
                         def usedList = used ? used.split('\n').collect { it.trim() } : []
                         def port = 3000
                         while (usedList.contains(port.toString())) { port++ }
@@ -88,14 +92,14 @@ pipeline {
 
         stage('Clone Repo') {
             steps {
-                sh 'rm -rf app && git clone --depth=1 "${REPO_URL}" app'
+                // FIX: use double-quotes so $REPO_URL is expanded by the shell (it's an env var)
+                sh "rm -rf app && git clone --depth=1 \"\$REPO_URL\" app"
             }
         }
 
         stage('Setup Docker Ignore') {
             steps {
                 script {
-                    // writeFile never touches the shell — zero quoting issues
                     writeFile file: 'app/.dockerignore', text: '''\
 .git
 .gitignore
@@ -158,8 +162,7 @@ target
         stage('Secret Scan') {
             steps {
                 script {
-                    // FIX: use sh("") double-quote block so Groovy handles escaping.
-                    // grep -r needs no backslash parens — safe in all block types.
+                    // FIX: single-quote the sh script — no Groovy interpolation needed
                     def result = sh(
                         script: 'grep -rniE "(password|api_key|secret|token)\\s*=\\s*.{8,}" app --include="*.js" --include="*.ts" --include="*.py" --include="*.env" --exclude-dir=node_modules --exclude-dir=.git || true',
                         returnStdout: true
@@ -167,8 +170,6 @@ target
                     if (result) {
                         echo "[WARN] Potential secrets found:"
                         echo result
-                        // Uncomment below to block the build on secrets found:
-                        // error('Secret scan failed')
                     } else {
                         echo "[META] SECRET_SCAN=PASSED"
                     }
@@ -183,7 +184,6 @@ target
                     def pkgRoot = 'app'
                     def entry   = 'index.js'
 
-                    // Monorepo probe
                     for (sub in ['packages','apps','services','frontend','backend','client','server','api','web']) {
                         if (fileExists("app/${sub}/package.json")) {
                             pkgRoot = "app/${sub}"
@@ -200,7 +200,6 @@ target
                         else if (pkg.contains('"express"') || pkg.contains('"fastify"') || pkg.contains('"koa"')) stack = 'node-server'
                         else                                stack = 'node'
 
-                        // Detect entry point
                         def m = (pkg =~ /"main"\s*:\s*"([^"]+)"/)
                         if (m.find()) {
                             entry = m.group(1)
@@ -230,7 +229,7 @@ target
             steps {
                 script {
                     if (fileExists("${env.PKG_ROOT}/package.json")) {
-                        // sh("") double-quote block — Groovy-interpolated, no bare backslashes needed
+                        // FIX: escape $ as \$ so shell handles it, not Groovy
                         sh "docker run --rm -v \"\$(pwd)/${env.PKG_ROOT}:/work\" -w /work node:20-alpine sh -c 'npm install --prefer-offline --ignore-scripts 2>&1 | tail -5 && npm audit --json 2>/dev/null || true' > /tmp/audit.txt 2>&1 || true"
                         def out = readFile('/tmp/audit.txt')
                         def crit = (out =~ /"critical":(\d+)/) ? (out =~ /"critical":(\d+)/)[0][1] : '0'
@@ -249,7 +248,6 @@ target
                     def dfPath = "${env.PKG_ROOT}/Dockerfile"
                     if (fileExists(dfPath)) {
                         echo '[INFO] Dockerfile exists in repo — using as-is'
-                        // Detect port from existing Dockerfile
                         def dfContent = readFile(dfPath)
                         if (dfContent.contains('EXPOSE 80')) { env.CONTAINER_PORT = '80' }
                     } else {
@@ -338,13 +336,14 @@ target
 
         stage('Build Image') {
             steps {
-                sh 'DOCKER_BUILDKIT=1 docker build --progress=plain -t "${IMAGE_NAME}" "${PKG_ROOT}/"'
+                // FIX: escape $ so shell expands the env vars, not Groovy
+                sh 'DOCKER_BUILDKIT=1 docker build --progress=plain -t "$IMAGE_NAME" "$PKG_ROOT/"'
             }
         }
 
         stage('Push to DockerHub') {
             steps {
-                sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin && docker push "${IMAGE_NAME}" && docker logout'
+                sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin && docker push "$IMAGE_NAME" && docker logout'
             }
         }
 
@@ -361,7 +360,11 @@ target
                         echo "APP URL: http://${env.LOCAL_HOST}:${env.PORT}"
                     } else {
                         sh """
-                            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${env.AWS_SSH_USER}@${env.AWS_HOST} 'docker pull ${env.IMAGE_NAME} && docker stop ${env.CONTAINER_NAME} 2>/dev/null; docker rm ${env.CONTAINER_NAME} 2>/dev/null; docker run -d --name ${env.CONTAINER_NAME} --restart unless-stopped -p 0.0.0.0:80:${env.CONTAINER_PORT} ${env.IMAGE_NAME}'
+                            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 ${env.AWS_SSH_USER}@${env.AWS_HOST} \
+                              'docker pull ${env.IMAGE_NAME} && \
+                               docker stop ${env.CONTAINER_NAME} 2>/dev/null; \
+                               docker rm   ${env.CONTAINER_NAME} 2>/dev/null; \
+                               docker run -d --name ${env.CONTAINER_NAME} --restart unless-stopped -p 0.0.0.0:80:${env.CONTAINER_PORT} ${env.IMAGE_NAME}'
                         """
                         echo "APP URL: http://${env.AWS_HOST}"
                     }
@@ -374,7 +377,11 @@ target
                 script {
                     sleep 3
                     if (env.DEPLOY_MODE == 'local') {
-                        def running = sh(script: "docker ps --format '{{.Names}}' | grep -c '${env.CONTAINER_NAME}' || true", returnStdout: true).trim()
+                        // FIX: single-quote sh so {{.Names}} is not parsed by Groovy
+                        def running = sh(
+                            script: "docker ps --format '{{.Names}}' | grep -c '${env.CONTAINER_NAME}' || true",
+                            returnStdout: true
+                        ).trim()
                         if (running == '1') {
                             echo "[OK] Container ${env.CONTAINER_NAME} is running"
                             sh "docker ps --filter name=${env.CONTAINER_NAME} --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
