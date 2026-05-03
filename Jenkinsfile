@@ -529,7 +529,6 @@ CMD ["node", "${entry}"]
                             CPORT='${env.CONTAINER_PORT}'
                             docker stop  "\$CNAME" 2>/dev/null || true
                             docker rm -f "\$CNAME" 2>/dev/null || true
-                            docker pull  "\$IMG"
                             docker run -d \
                               --name    "\$CNAME" \
                               --restart unless-stopped \
