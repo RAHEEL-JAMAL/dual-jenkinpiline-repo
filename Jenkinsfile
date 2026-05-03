@@ -495,7 +495,7 @@ CMD ["node", "${entry}"]
                     // FIX 1: Removed DOCKER_BUILDKIT=1 — requires buildx which is NOT installed
                     // FIX 2: Pass explicit -f flag for Dockerfile path; context is always app/
                     // FIX 3: Single-quote sh so shell expands $IMAGE_NAME and $PKG_ROOT safely
-                    sh 'docker build --progress=plain --no-cache -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
+                    sh 'docker build --no-cache -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
                     echo "[STAGE_SUCCESS] Build Image"
                 }
             }
