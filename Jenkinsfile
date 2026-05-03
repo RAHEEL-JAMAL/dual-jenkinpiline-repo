@@ -41,9 +41,8 @@ pipeline {
                     if (!repoUrl) error('REPO_URL is required')
                     if (!appName) error('APP_NAME is required')
 
-                    // FIX: safe string concat — no special chars in script string
                     def appId = sh(
-                        script: "echo -n '${repoUrl}' | md5sum | cut -c1-6",
+                        script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
                         returnStdout: true
                     ).trim()
 
@@ -89,8 +88,7 @@ pipeline {
                 script {
                     echo "[STAGE_START] Allocate Port"
                     if (env.DEPLOY_MODE == 'local') {
-                        // FIX: single-quote sh — {{.Ports}} must not be parsed by Groovy
-                        // FIX: convert to plain string list immediately — no Matcher stored
+                        // FIX: single-quote sh so Go templates are not parsed by Groovy
                         def usedRaw = sh(
                             script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]{2,5}\' | sort -un || true',
                             returnStdout: true
@@ -113,7 +111,7 @@ pipeline {
             steps {
                 script {
                     echo "[STAGE_START] Clone Repo"
-                    // FIX: use env var directly in shell — no Groovy interpolation of URL
+                    // FIX: shell expands $REPO_URL — no Groovy interpolation of untrusted URL
                     sh 'rm -rf app && git clone --depth=1 "$REPO_URL" app'
                     echo "[STAGE_SUCCESS] Clone Repo"
                 }
@@ -198,7 +196,6 @@ target
                     ).trim()
                     if (result) {
                         echo "[WARN] Potential secrets found — review before production"
-                        // Not blocking — warn only
                     } else {
                         echo "[META] SECRET_SCAN=PASSED"
                     }
@@ -230,20 +227,18 @@ target
                     if (fileExists("${pkgRoot}/package.json")) {
                         def pkg = readFile("${pkgRoot}/package.json")
 
-                        if      (pkg.contains('"vite"'))                                                        stack = 'vite'
-                        else if (pkg.contains('"next"'))                                                        stack = 'nextjs'
-                        else if (pkg.contains('"react-scripts"'))                                               stack = 'cra'
-                        else if (pkg.contains('"react"'))                                                       stack = 'react'
-                        else if (pkg.contains('"express"') || pkg.contains('"fastify"') || pkg.contains('"koa"')) stack = 'node-server'
-                        else                                                                                    stack = 'node'
+                        if      (pkg.contains('"vite"'))                                                            stack = 'vite'
+                        else if (pkg.contains('"next"'))                                                            stack = 'nextjs'
+                        else if (pkg.contains('"react-scripts"'))                                                   stack = 'cra'
+                        else if (pkg.contains('"react"'))                                                           stack = 'react'
+                        else if (pkg.contains('"express"') || pkg.contains('"fastify"') || pkg.contains('"koa"'))   stack = 'node-server'
+                        else                                                                                        stack = 'node'
 
-                        // FIX: extract entry point WITHOUT storing Matcher in a variable
-                        // Use @NonCPS-safe string operations only
+                        // FIX: call find() and group() immediately — never store Matcher across CPS boundary
                         def mainMatch = (pkg =~ /"main"\s*:\s*"([^"]+)"/)
-                        // FIX: call find() and group() immediately — never store Matcher
                         if (mainMatch.find()) {
                             entry = mainMatch.group(1)
-                            mainMatch = null  // release immediately
+                            mainMatch = null
                         } else {
                             mainMatch = null
                             for (ep in ['index.js', 'server.js', 'app.js', 'main.js', 'src/index.js', 'src/server.js']) {
@@ -284,18 +279,17 @@ target
                 script {
                     echo "[STAGE_START] Dependency Audit"
                     if (fileExists("${env.PKG_ROOT}/package.json")) {
-                        // FIX: run audit inside Docker so Jenkins host node version doesn't matter
-                        sh """
+                        // FIX: redirect inside the docker sh -c string, not outside — avoids here-doc conflicts
+                        sh '''
                             docker run --rm \
-                              -v "\$(pwd)/${env.PKG_ROOT}:/work" \
+                              -v "$(pwd)/''' + env.PKG_ROOT + ''':/work" \
                               -w /work \
                               node:20-alpine \
                               sh -c 'npm install --prefer-offline --ignore-scripts --silent 2>&1 | tail -3; npm audit --json 2>/dev/null || true' \
                               > /tmp/audit.txt 2>&1 || true
-                        """
+                        '''
                         def out = readFile('/tmp/audit.txt')
 
-                        // FIX: extract numbers WITHOUT storing Matcher
                         def critMatch = (out =~ /"critical"\s*:\s*(\d+)/)
                         def crit = critMatch.find() ? critMatch.group(1) : '0'
                         critMatch = null
@@ -324,7 +318,6 @@ target
                     if (fileExists(dfPath)) {
                         echo '[INFO] Dockerfile already exists — using repo Dockerfile'
                         def dfContent = readFile(dfPath)
-                        // Detect exposed port from existing Dockerfile
                         if      (dfContent.contains('EXPOSE 80'))   { env.CONTAINER_PORT = '80' }
                         else if (dfContent.contains('EXPOSE 8080')) { env.CONTAINER_PORT = '8080' }
                         else if (dfContent.contains('EXPOSE 5000')) { env.CONTAINER_PORT = '5000' }
@@ -355,7 +348,7 @@ CMD ["nginx", "-g", "daemon off;"]
                                 env.CONTAINER_PORT = '80'
                                 break
 
-                            // ── CRA / React (react-scripts) ───────────────────
+                            // ── CRA / React ───────────────────────────────────
                             case 'cra':
                             case 'react':
                                 df = '''\
@@ -499,8 +492,10 @@ CMD ["node", "${entry}"]
             steps {
                 script {
                     echo "[STAGE_START] Build Image"
-                    // FIX: single-quote sh — $IMAGE_NAME and $PKG_ROOT expanded by shell
-                    sh 'DOCKER_BUILDKIT=1 docker build --progress=plain --no-cache -t "$IMAGE_NAME" "$PKG_ROOT/"'
+                    // FIX 1: Removed DOCKER_BUILDKIT=1 — requires buildx which is NOT installed
+                    // FIX 2: Pass explicit -f flag for Dockerfile path; context is always app/
+                    // FIX 3: Single-quote sh so shell expands $IMAGE_NAME and $PKG_ROOT safely
+                    sh 'docker build --progress=plain --no-cache -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
                     echo "[STAGE_SUCCESS] Build Image"
                 }
             }
@@ -525,29 +520,37 @@ CMD ["node", "${entry}"]
                 script {
                     echo "[STAGE_START] Deploy"
                     if (env.DEPLOY_MODE == 'local') {
+                        // FIX: use shell-expanded vars via single-quote sh where possible
+                        // Mixed quoting needed for env vars — use explicit shell variable assignments
                         sh """
-                            docker stop  ${env.CONTAINER_NAME} 2>/dev/null || true
-                            docker rm -f ${env.CONTAINER_NAME} 2>/dev/null || true
-                            docker pull  ${env.IMAGE_NAME}
+                            CNAME='${env.CONTAINER_NAME}'
+                            IMG='${env.IMAGE_NAME}'
+                            HPORT='${env.PORT}'
+                            CPORT='${env.CONTAINER_PORT}'
+                            docker stop  "\$CNAME" 2>/dev/null || true
+                            docker rm -f "\$CNAME" 2>/dev/null || true
+                            docker pull  "\$IMG"
                             docker run -d \
-                              --name    ${env.CONTAINER_NAME} \
+                              --name    "\$CNAME" \
                               --restart unless-stopped \
-                              -p 0.0.0.0:${env.PORT}:${env.CONTAINER_PORT} \
-                              ${env.IMAGE_NAME}
+                              -p 0.0.0.0:\${HPORT}:\${CPORT} \
+                              "\$IMG"
                         """
                         echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
                     } else {
+                        // FIX: use heredoc for SSH remote command to avoid nested quoting hell
                         sh """
                             ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
-                              ${env.AWS_SSH_USER}@${env.AWS_HOST} \
-                              'docker pull ${env.IMAGE_NAME} && \
-                               docker stop  ${env.CONTAINER_NAME} 2>/dev/null || true; \
-                               docker rm -f ${env.CONTAINER_NAME} 2>/dev/null || true; \
-                               docker run -d \
-                                 --name    ${env.CONTAINER_NAME} \
-                                 --restart unless-stopped \
-                                 -p 0.0.0.0:80:${env.CONTAINER_PORT} \
-                                 ${env.IMAGE_NAME}'
+                              '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
+docker pull '${env.IMAGE_NAME}'
+docker stop  '${env.CONTAINER_NAME}' 2>/dev/null || true
+docker rm -f '${env.CONTAINER_NAME}' 2>/dev/null || true
+docker run -d \\
+  --name    '${env.CONTAINER_NAME}' \\
+  --restart unless-stopped \\
+  -p 0.0.0.0:80:'${env.CONTAINER_PORT}' \\
+  '${env.IMAGE_NAME}'
+ENDSSH
                         """
                         echo "[META] URL=http://${env.AWS_HOST}"
                     }
@@ -561,32 +564,31 @@ CMD ["node", "${entry}"]
             steps {
                 script {
                     echo "[STAGE_START] Verify"
-                    sleep 5  // give container time to boot
+                    sleep 5
 
                     if (env.DEPLOY_MODE == 'local') {
-                        // FIX: single-quote — {{.Names}} must not be parsed by Groovy
+                        // FIX: single-quote the docker format template so Groovy doesn't parse {{.Names}}
                         def running = sh(
-                            script: "docker ps --format '{{.Names}}' | grep -c '^${env.CONTAINER_NAME}\$' || true",
+                            script: 'docker ps --format \'{{.Names}}\' | grep -c \'^' + env.CONTAINER_NAME + '$\' || true',
                             returnStdout: true
                         ).trim()
 
                         if (running == '1') {
                             echo "[OK] Container ${env.CONTAINER_NAME} is running"
-                            sh "docker ps --filter name=^${env.CONTAINER_NAME}\$ --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'"
-                            // Retry curl up to 3 times — container may need a moment
+                            sh 'docker ps --filter \'name=^' + env.CONTAINER_NAME + '$\' --format \'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\''
                             sh """
                                 for i in 1 2 3; do
                                     curl -sf --max-time 10 http://localhost:${env.PORT}/ -o /dev/null && echo 'HTTP OK' && break
-                                    echo "Attempt \$i failed, retrying in 3s..."
-                                    sleep 3
+                                    echo "Attempt \$i failed, retrying in 5s..."
+                                    sleep 5
                                 done || echo '[WARN] HTTP check did not succeed — app may still be starting'
                             """
                         } else {
                             echo "[WARN] Container not running — dumping last 30 log lines:"
-                            sh "docker logs --tail 30 ${env.CONTAINER_NAME} 2>&1 || true"
+                            sh "docker logs --tail 30 '${env.CONTAINER_NAME}' 2>&1 || true"
                         }
                     } else {
-                        sh "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 ${env.DEPLOY_USER}@${env.DEPLOY_HOST} 'docker ps --filter name=^${env.CONTAINER_NAME}\$' || true"
+                        sh "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 '${env.DEPLOY_USER}'@'${env.DEPLOY_HOST}' 'docker ps --filter name=^${env.CONTAINER_NAME}\$' || true"
                     }
                     echo "[STAGE_SUCCESS] Verify"
                 }
@@ -597,7 +599,6 @@ CMD ["node", "${entry}"]
 
     post {
         always {
-            // Clean local build image to save disk space
             sh 'docker rmi "$IMAGE_NAME" 2>/dev/null || true'
             sh 'rm -rf app || true'
             echo '[INFO] Workspace cleaned'
