@@ -515,32 +515,39 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Deploy') {
-            steps {
-                script {
-                    echo "[STAGE_START] Deploy"
-                    if (env.DEPLOY_MODE == 'local') {
-                        // FIX: use shell-expanded vars via single-quote sh where possible
-                        // Mixed quoting needed for env vars — use explicit shell variable assignments
-                        sh """
-                            CNAME='${env.CONTAINER_NAME}'
-                            IMG='${env.IMAGE_NAME}'
-                            HPORT='${env.PORT}'
-                            CPORT='${env.CONTAINER_PORT}'
-                            docker stop  "\$CNAME" 2>/dev/null || true
-                            docker rm -f "\$CNAME" 2>/dev/null || true
-                            docker run -d \
-                              --name    "\$CNAME" \
-                              --restart unless-stopped \
-                              -p 0.0.0.0:\${HPORT}:\${CPORT} \
-                              "\$IMG"
-                        """
-                        echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
-                    } else {
-                        // FIX: use heredoc for SSH remote command to avoid nested quoting hell
-                        sh """
-                            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
-                              '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
+       stage('Deploy') {
+    steps {
+        script {
+            echo "[STAGE_START] Deploy"
+
+            // Auto-detect container port from Dockerfile
+            def CPORT = sh(
+                script: "grep -i '^EXPOSE' app/Dockerfile | awk '{print \$2}' | head -1",
+                returnStdout: true
+            ).trim()
+            if (!CPORT) { CPORT = "8000" }
+            env.CONTAINER_PORT = CPORT
+            echo "[META] CONTAINER_PORT=${env.CONTAINER_PORT}"
+
+            if (env.DEPLOY_MODE == 'local') {
+                sh """
+                    CNAME='${env.CONTAINER_NAME}'
+                    IMG='${env.IMAGE_NAME}'
+                    HPORT='${env.PORT}'
+                    CPORT='${env.CONTAINER_PORT}'
+                    docker stop  "\$CNAME" 2>/dev/null || true
+                    docker rm -f "\$CNAME" 2>/dev/null || true
+                    docker run -d \
+                      --name    "\$CNAME" \
+                      --restart unless-stopped \
+                      -p 0.0.0.0:\${HPORT}:\${CPORT} \
+                      "\$IMG"
+                """
+                echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
+            } else {
+                sh """
+                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+                      '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
 docker pull '${env.IMAGE_NAME}'
 docker stop  '${env.CONTAINER_NAME}' 2>/dev/null || true
 docker rm -f '${env.CONTAINER_NAME}' 2>/dev/null || true
@@ -550,13 +557,13 @@ docker run -d \\
   -p 0.0.0.0:80:'${env.CONTAINER_PORT}' \\
   '${env.IMAGE_NAME}'
 ENDSSH
-                        """
-                        echo "[META] URL=http://${env.AWS_HOST}"
-                    }
-                    echo "[STAGE_SUCCESS] Deploy"
-                }
+                """
+                echo "[META] URL=http://${env.AWS_HOST}"
             }
+            echo "[STAGE_SUCCESS] Deploy"
         }
+    }
+}
 
         // ─────────────────────────────────────────────────────────────────────
         stage('Verify') {
