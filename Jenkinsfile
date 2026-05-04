@@ -1206,16 +1206,24 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Build Image') {
-            steps {
-                script {
-                    echo "[STAGE_START] Build Image"
-                    // FIX: added --network host so npm install inside Docker can reach the internet
-                    sh 'docker build --no-cache --network host -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
-                    echo "[STAGE_SUCCESS] Build Image"
-                }
-            }
+       stage('Build Image') {
+    steps {
+        script {
+            echo "[STAGE_START] Build Image"
+
+            // 🚀 FIX: removed --no-cache (major speed improvement)
+            sh '''
+                docker build \
+                  --network host \
+                  -f "$PKG_ROOT/Dockerfile" \
+                  -t "$IMAGE_NAME" \
+                  "$PKG_ROOT/"
+            '''
+
+            echo "[STAGE_SUCCESS] Build Image"
         }
+    }
+}
 
         // ─────────────────────────────────────────────────────────────────────
         stage('Image Scan (Trivy)') {
