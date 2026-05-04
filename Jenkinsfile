@@ -1245,7 +1245,6 @@
 
 
 
-
 pipeline {
     agent any
 
@@ -1279,52 +1278,42 @@ pipeline {
             }
         }
 
-        
-   stage('Input Repo') {
-    steps {
-        script {
-            echo "[STAGE_START] Input Repo"
+        // ─────────────────────────────────────────────────────────────────────
+        stage('Input Repo') {
+            steps {
+                script {
+                    echo "[STAGE_START] Input Repo"
 
-            def repoUrl = params.REPO_URL?.trim()
-            def appName = params.APP_NAME?.trim()
+                    def repoUrl = params.REPO_URL?.trim()
+                    def appName = params.APP_NAME?.trim()
 
-            if (!repoUrl) error('REPO_URL is required')
-            if (!appName) error('APP_NAME is required')
+                    if (!repoUrl) error('REPO_URL is required')
+                    if (!appName) error('APP_NAME is required')
 
-            // Generate unique ID from repo
-            def appId = sh(
-                script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
-                returnStdout: true
-            ).trim()
+                    def appId = sh(
+                        script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
+                        returnStdout: true
+                    ).trim()
 
-            // ✅ sanitize app name (VERY IMPORTANT for Docker safety)
-            def safeAppName = appName.toLowerCase().replaceAll(/[^a-z0-9-_]/, '-')
+                    def safeAppName = appName.toLowerCase().replaceAll(/[^a-z0-9-_]/, '-')
 
-            // store values globally
-            env.REPO_URL = repoUrl
-            env.APP_NAME = safeAppName
-            env.APP_ID   = appId
+                    env.REPO_URL       = repoUrl
+                    env.APP_NAME       = safeAppName
+                    env.APP_ID         = appId
+                    env.CONTAINER_NAME = "${safeAppName}-${appId}"
+                    env.IMAGE_NAME     = "${DOCKERHUB_USER}/${safeAppName}-${appId}:latest"
+                    env.PKG_ROOT       = 'app'
+                    env.CONTAINER_PORT = '3000'
 
-            // ✅ FIXED: readable container name
-            env.CONTAINER_NAME = "${safeAppName}-${appId}"
-
-            // ✅ FIXED: readable docker image name
-            env.IMAGE_NAME = "${DOCKERHUB_USER}/${safeAppName}-${appId}:latest"
-
-            env.PKG_ROOT = 'app'
-            env.CONTAINER_PORT = '3000'
-
-            echo "[META] APP_NAME=${env.APP_NAME}"
-            echo "[META] APP_ID=${appId}"
-            echo "[META] CONTAINER_NAME=${env.CONTAINER_NAME}"
-            echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
-
-            echo "[STAGE_SUCCESS] Input Repo"
+                    echo "[META] APP_NAME=${env.APP_NAME}"
+                    echo "[META] APP_ID=${appId}"
+                    echo "[META] CONTAINER_NAME=${env.CONTAINER_NAME}"
+                    echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
+                    echo "[STAGE_SUCCESS] Input Repo"
+                }
+            }
         }
-    }
-}
 
-        
         // ─────────────────────────────────────────────────────────────────────
         stage('Select Deploy Mode') {
             steps {
@@ -1347,93 +1336,44 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // stage('Allocate Safe Port') {
-        //     steps {
-        //         script {
-        //             echo "[STAGE_START] Allocate Safe Port"
-        //             if (env.DEPLOY_MODE == 'local') {
-        //                 def usedRaw = sh(
-        //                     script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]{2,5}\' | sort -un || true',
-        //                     returnStdout: true
-        //                 ).trim()
-        //                 def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
-        //                 def port = 3000
-        //                 while (usedPorts.contains(port.toString())) { port++ }
-        //                 env.PORT = port.toString()
-        //             } else {
-        //                 env.PORT = '80'
-        //             }
-        //             echo "[META] PORT=${env.PORT}"
-        //             echo "[STAGE_SUCCESS] Allocate Safe Port"
-        //         }
-        //     }
-        // }
-
-
         stage('Allocate Safe Port') {
-    steps {
-        script {
-            echo "[STAGE_START] Allocate Safe Port"
+            steps {
+                script {
+                    echo "[STAGE_START] Allocate Safe Port"
 
-            // ✅ VERCEL-LIKE PORT MAP (STACK → DEFAULT PORT)
-            def portMap = [
-                vite: "80",
-                react: "80",
-                cra: "80",
-                nextjs: "80",
-                frontend: "80",
+                    def portMap = [
+                        vite: "80", react: "80", cra: "80", nextjs: "80", frontend: "80",
+                        node: "3000", backend: "3000", "node-server": "3000",
+                        python: "3000", flask: "5000", fastapi: "8000", django: "8000",
+                        java: "8080", spring: "8080",
+                        go: "3000", php: "80"
+                    ]
 
-                node: "3000",
-                backend: "3000",
-                "node-server": "3000",
+                    def stack    = env.STACK ?: "backend"
+                    def basePort = portMap[stack] ?: "3000"
 
-                python: "3000",
-                flask: "5000",
-                fastapi: "8000",
-                django: "8000",
+                    if (env.DEPLOY_MODE == 'local') {
+                        def usedRaw = sh(
+                            script: 'docker ps --format "{{.Ports}}" | grep -oE "[0-9]{2,5}" | sort -un || true',
+                            returnStdout: true
+                        ).trim()
 
-                java: "8080",
-                spring: "8080",
+                        def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
+                        def port = basePort.toInteger()
+                        while (usedPorts.contains(port.toString())) { port++ }
+                        env.PORT = port.toString()
+                    } else {
+                        env.PORT = "80"
+                    }
 
-                go: "3000",
-                php: "80"
-            ]
-
-            def stack = env.STACK ?: "backend"
-
-            def basePort = portMap[stack] ?: "3000"
-
-            if (env.DEPLOY_MODE == 'local') {
-
-                // 🔍 get already used ports from docker
-                def usedRaw = sh(
-                    script: 'docker ps --format "{{.Ports}}" | grep -oE "[0-9]{2,5}" | sort -un || true',
-                    returnStdout: true
-                ).trim()
-
-                def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
-
-                def port = basePort.toInteger()
-
-                // 🔁 avoid conflicts
-                while (usedPorts.contains(port.toString())) {
-                    port++
+                    echo "[META] STACK=${stack}"
+                    echo "[META] BASE_PORT=${basePort}"
+                    echo "[META] FINAL_PORT=${env.PORT}"
+                    echo "[STAGE_SUCCESS] Allocate Safe Port"
                 }
-
-                env.PORT = port.toString()
-
-            } else {
-                env.PORT = "80"
             }
-
-            echo "[META] STACK=${stack}"
-            echo "[META] BASE_PORT=${basePort}"
-            echo "[META] FINAL_PORT=${env.PORT}"
-
-            echo "[STAGE_SUCCESS] Allocate Safe Port"
         }
-    }
-}
+
         // ─────────────────────────────────────────────────────────────────────
         stage('Clone Repo') {
             steps {
@@ -1604,7 +1544,6 @@ target
                 script {
                     echo "[STAGE_START] Dependency Audit"
                     if (fileExists("${env.PKG_ROOT}/package.json")) {
-                        // FIX: added --network host so the container can reach npmjs.org
                         sh '''
                             docker run --rm \
                               --network host \
@@ -1660,7 +1599,6 @@ target
 
                         switch (env.STACK) {
                             case 'vite':
-                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -1684,7 +1622,6 @@ CMD ["nginx", "-g", "daemon off;"]
 
                             case 'cra':
                             case 'react':
-                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -1707,7 +1644,6 @@ CMD ["nginx", "-g", "daemon off;"]
                                 break
 
                             case 'nextjs':
-                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -1736,7 +1672,6 @@ CMD ["node", "server.js"]
                                 break
 
                             case 'node-server':
-                                // FIX: npm ci → npm install with retry config
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
@@ -1805,7 +1740,6 @@ CMD ["./server"]
                                 break
 
                             default:
-                                // FIX: npm ci → npm install with retry config
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
@@ -1831,25 +1765,24 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-    stage('Build Image') {
-    steps {
-        script {
-            echo "[STAGE_START] Build Image"
+        stage('Build Image') {
+            steps {
+                script {
+                    echo "[STAGE_START] Build Image"
+                    sh """
+                        docker image inspect \$IMAGE_NAME > /dev/null 2>&1 || echo "No cache image found"
 
-            sh """
-                docker image inspect \$IMAGE_NAME > /dev/null 2>&1 || echo "No cache image found"
-
-                docker build \
-                    --network host \
-                    -f "\$PKG_ROOT/Dockerfile" \
-                    -t "\$IMAGE_NAME" \
-                    "\$PKG_ROOT/"
-            """
-
-            echo "[STAGE_SUCCESS] Build Image"
+                        docker build \
+                            --network host \
+                            -f "\$PKG_ROOT/Dockerfile" \
+                            -t "\$IMAGE_NAME" \
+                            "\$PKG_ROOT/"
+                    """
+                    echo "[STAGE_SUCCESS] Build Image"
+                }
+            }
         }
-    }
-}
+
         // ─────────────────────────────────────────────────────────────────────
         stage('Image Scan (Trivy)') {
             steps {
@@ -1858,7 +1791,6 @@ CMD ["node", "${entry}"]
 
                     sh 'docker pull aquasec/trivy:latest 2>/dev/null || true'
 
-                    // FIX: added --network host so Trivy can download its vulnerability DB
                     sh """
                         docker run --rm \
                           --network host \
@@ -1893,12 +1825,10 @@ CMD ["node", "${entry}"]
 
                     if (criticalCount > 0) {
                         echo "[WARN] Trivy found ${criticalCount} CRITICAL CVE(s) in image — review before production"
-                        echo "[META] IMAGE_SCAN=PASSED"
                     } else {
                         echo "[INFO] Trivy scan complete — no CRITICAL vulnerabilities found"
-                        echo "[META] IMAGE_SCAN=PASSED"
                     }
-
+                    echo "[META] IMAGE_SCAN=PASSED"
                     echo "[STAGE_SUCCESS] Image Scan (Trivy)"
                 }
             }
@@ -1917,45 +1847,38 @@ CMD ["node", "${entry}"]
             }
         }
 
-       stage('Deploy') {
-    steps {
-        script {
-            echo "[STAGE_START] Deploy"
+        // ─────────────────────────────────────────────────────────────────────
+        stage('Deploy') {
+            steps {
+                script {
+                    echo "[STAGE_START] Deploy"
 
-            // 🔥 FIX 1: REMOVE EXPOSE LOGIC COMPLETELY
-            def isFrontend = (env.STACK == 'vite' || env.STACK == 'react' || env.STACK == 'cra' || env.STACK == 'nextjs')
+                    def isFrontend = (env.STACK == 'vite' || env.STACK == 'react' || env.STACK == 'cra' || env.STACK == 'nextjs')
+                    env.CONTAINER_PORT = isFrontend ? "80" : "3000"
 
-            if (isFrontend) {
-                env.CONTAINER_PORT = "80"
-            } else {
-                env.CONTAINER_PORT = "3000"
-            }
+                    echo "[META] FORCE_CONTAINER_PORT=${env.CONTAINER_PORT}"
 
-            echo "[META] FORCE_CONTAINER_PORT=${env.CONTAINER_PORT}"
+                    if (env.DEPLOY_MODE == 'local') {
+                        sh """
+                            CNAME='${env.CONTAINER_NAME}'
+                            IMG='${env.IMAGE_NAME}'
+                            HPORT='${env.PORT}'
+                            CPORT='${env.CONTAINER_PORT}'
 
-            if (env.DEPLOY_MODE == 'local') {
-                sh """
-                    CNAME='${env.CONTAINER_NAME}'
-                    IMG='${env.IMAGE_NAME}'
-                    HPORT='${env.PORT}'
-                    CPORT='${env.CONTAINER_PORT}'
+                            docker stop "\$CNAME" 2>/dev/null || true
+                            docker rm -f "\$CNAME" 2>/dev/null || true
 
-                    docker stop "\$CNAME" 2>/dev/null || true
-                    docker rm -f "\$CNAME" 2>/dev/null || true
-
-                    docker run -d \
-                      --name "\$CNAME" \
-                      --restart unless-stopped \
-                      -p 0.0.0.0:\${HPORT}:\${CPORT} \
-                      "\$IMG"
-                """
-
-                echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
-            } 
-            else {
-                sh """
-                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
-                      '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
+                            docker run -d \
+                              --name "\$CNAME" \
+                              --restart unless-stopped \
+                              -p 0.0.0.0:\${HPORT}:\${CPORT} \
+                              "\$IMG"
+                        """
+                        echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
+                    } else {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+                              '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
 
 docker pull '${env.IMAGE_NAME}'
 docker stop  '${env.CONTAINER_NAME}' 2>/dev/null || true
@@ -1968,15 +1891,14 @@ docker run -d \
   '${env.IMAGE_NAME}'
 
 ENDSSH
-                """
+                        """
+                        echo "[META] URL=http://${env.AWS_HOST}"
+                    }
 
-                echo "[META] URL=http://${env.AWS_HOST}"
+                    echo "[STAGE_SUCCESS] Deploy"
+                }
             }
-
-            echo "[STAGE_SUCCESS] Deploy"
         }
-    }
-}
 
         // ─────────────────────────────────────────────────────────────────────
         stage('Verify') {
@@ -2029,182 +1951,9 @@ ENDSSH
         }
     }
 }
-        // ─────────────────────────────────────────────────────────────────────
-        stage('Image Scan (Trivy)') {
-            steps {
-                script {
-                    echo "[STAGE_START] Image Scan (Trivy)"
 
-                    sh 'docker pull aquasec/trivy:latest 2>/dev/null || true'
 
-                    // FIX: added --network host so Trivy can download its vulnerability DB
-                    sh """
-                        docker run --rm \
-                          --network host \
-                          -v /var/run/docker.sock:/var/run/docker.sock \
-                          -v /tmp/trivy-cache:/root/.cache/trivy \
-                          aquasec/trivy:latest image \
-                          --exit-code 0 \
-                          --severity CRITICAL,HIGH \
-                          --format json \
-                          --output /tmp/trivy-report.json \
-                          '${env.IMAGE_NAME}' || true
-                    """
 
-                    def reportFile = '/tmp/trivy-report.json'
-                    def criticalCount = 0
-                    def highCount     = 0
 
-                    if (fileExists(reportFile)) {
-                        def report = readFile(reportFile)
 
-                        def critMatches = (report =~ /"Severity"\s*:\s*"CRITICAL"/)
-                        while (critMatches.find()) { criticalCount++ }
-                        critMatches = null
-
-                        def highMatches = (report =~ /"Severity"\s*:\s*"HIGH"/)
-                        while (highMatches.find()) { highCount++ }
-                        highMatches = null
-                    }
-
-                    echo "[META] IMAGE_CRITICAL_CVE=${criticalCount}"
-                    echo "[META] IMAGE_HIGH_CVE=${highCount}"
-
-                    if (criticalCount > 0) {
-                        echo "[WARN] Trivy found ${criticalCount} CRITICAL CVE(s) in image — review before production"
-                        echo "[META] IMAGE_SCAN=PASSED"
-                    } else {
-                        echo "[INFO] Trivy scan complete — no CRITICAL vulnerabilities found"
-                        echo "[META] IMAGE_SCAN=PASSED"
-                    }
-
-                    echo "[STAGE_SUCCESS] Image Scan (Trivy)"
-                }
-            }
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        stage('Push to DockerHub') {
-            steps {
-                script {
-                    echo "[STAGE_START] Push to DockerHub"
-                    sh 'echo "$DOCKERHUB_CRED_PSW" | docker login -u "$DOCKERHUB_CRED_USR" --password-stdin'
-                    sh 'docker push "$IMAGE_NAME"'
-                    sh 'docker logout'
-                    echo "[STAGE_SUCCESS] Push to DockerHub"
-                }
-            }
-        }
-
-       stage('Deploy') {
-    steps {
-        script {
-            echo "[STAGE_START] Deploy"
-
-            // 🔥 FIX 1: REMOVE EXPOSE LOGIC COMPLETELY
-            def isFrontend = (env.STACK == 'vite' || env.STACK == 'react' || env.STACK == 'cra' || env.STACK == 'nextjs')
-
-            if (isFrontend) {
-                env.CONTAINER_PORT = "80"
-            } else {
-                env.CONTAINER_PORT = "3000"
-            }
-
-            echo "[META] FORCE_CONTAINER_PORT=${env.CONTAINER_PORT}"
-
-            if (env.DEPLOY_MODE == 'local') {
-                sh """
-                    CNAME='${env.CONTAINER_NAME}'
-                    IMG='${env.IMAGE_NAME}'
-                    HPORT='${env.PORT}'
-                    CPORT='${env.CONTAINER_PORT}'
-
-                    docker stop "\$CNAME" 2>/dev/null || true
-                    docker rm -f "\$CNAME" 2>/dev/null || true
-
-                    docker run -d \
-                      --name "\$CNAME" \
-                      --restart unless-stopped \
-                      -p 0.0.0.0:\${HPORT}:\${CPORT} \
-                      "\$IMG"
-                """
-
-                echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
-            } 
-            else {
-                sh """
-                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
-                      '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
-
-docker pull '${env.IMAGE_NAME}'
-docker stop  '${env.CONTAINER_NAME}' 2>/dev/null || true
-docker rm -f '${env.CONTAINER_NAME}' 2>/dev/null || true
-
-docker run -d \
-  --name '${env.CONTAINER_NAME}' \
-  --restart unless-stopped \
-  -p 0.0.0.0:80:'${env.CONTAINER_PORT}' \
-  '${env.IMAGE_NAME}'
-
-ENDSSH
-                """
-
-                echo "[META] URL=http://${env.AWS_HOST}"
-            }
-
-            echo "[STAGE_SUCCESS] Deploy"
-        }
-    }
-}
-
-        // ─────────────────────────────────────────────────────────────────────
-        stage('Verify') {
-            steps {
-                script {
-                    echo "[STAGE_START] Verify"
-                    sleep 5
-
-                    if (env.DEPLOY_MODE == 'local') {
-                        def running = sh(
-                            script: 'docker ps --format \'{{.Names}}\' | grep -c \'^' + env.CONTAINER_NAME + '$\' || true',
-                            returnStdout: true
-                        ).trim()
-
-                        if (running == '1') {
-                            echo "[OK] Container ${env.CONTAINER_NAME} is running"
-                            sh 'docker ps --filter \'name=^' + env.CONTAINER_NAME + '$\' --format \'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\''
-                            sh """
-                                for i in 1 2 3; do
-                                    curl -sf --max-time 10 http://localhost:${env.PORT}/ -o /dev/null && echo 'HTTP OK' && break
-                                    echo "Attempt \$i failed, retrying in 5s..."
-                                    sleep 5
-                                done || echo '[WARN] HTTP check did not succeed — app may still be starting'
-                            """
-                        } else {
-                            echo "[WARN] Container not running — dumping last 30 log lines:"
-                            sh "docker logs --tail 30 '${env.CONTAINER_NAME}' 2>&1 || true"
-                        }
-                    } else {
-                        sh "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 '${env.DEPLOY_USER}'@'${env.DEPLOY_HOST}' 'docker ps --filter name=^${env.CONTAINER_NAME}\$' || true"
-                    }
-                    echo "[STAGE_SUCCESS] Verify"
-                }
-            }
-        }
-
-    
-
-    post {
-        always {
-            sh 'docker rmi "$IMAGE_NAME" 2>/dev/null || true'
-            sh 'rm -rf app /tmp/trivy-report.json || true'
-            echo '[INFO] Workspace cleaned'
-        }
-        success {
-            echo "[DEPLOY_SUCCESS] ${env.IMAGE_NAME} → port ${env.PORT}"
-        }
-        failure {
-            echo '[DEPLOY_FAILED]'
-        }
-    }
-
+         
