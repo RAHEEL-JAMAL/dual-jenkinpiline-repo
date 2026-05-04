@@ -1247,55 +1247,66 @@ CMD ["node", "${entry}"]
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        stage('Deploy') {
-            steps {
-                script {
-                    echo "[STAGE_START] Deploy"
+       stage('Deploy') {
+    steps {
+        script {
+            echo "[STAGE_START] Deploy"
 
-                    def CPORT = sh(
-                        script: "grep -i '^EXPOSE' app/Dockerfile | awk '{print \$2}' | head -1",
-                        returnStdout: true
-                    ).trim()
-                    if (!CPORT) { CPORT = "8000" }
-                    env.CONTAINER_PORT = CPORT
-                    echo "[META] CONTAINER_PORT=${env.CONTAINER_PORT}"
+            // 🔥 FIX 1: REMOVE EXPOSE LOGIC COMPLETELY
+            def isFrontend = (env.STACK == 'vite' || env.STACK == 'react' || env.STACK == 'cra' || env.STACK == 'nextjs')
 
-                    if (env.DEPLOY_MODE == 'local') {
-                        sh """
-                            CNAME='${env.CONTAINER_NAME}'
-                            IMG='${env.IMAGE_NAME}'
-                            HPORT='${env.PORT}'
-                            CPORT='${env.CONTAINER_PORT}'
-                            docker stop  "\$CNAME" 2>/dev/null || true
-                            docker rm -f "\$CNAME" 2>/dev/null || true
-                            docker run -d \
-                              --name    "\$CNAME" \
-                              --restart unless-stopped \
-                              -p 0.0.0.0:\${HPORT}:\${CPORT} \
-                              "\$IMG"
-                        """
-                        echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
-                    } else {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
-                              '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
+            if (isFrontend) {
+                env.CONTAINER_PORT = "80"
+            } else {
+                env.CONTAINER_PORT = "3000"
+            }
+
+            echo "[META] FORCE_CONTAINER_PORT=${env.CONTAINER_PORT}"
+
+            if (env.DEPLOY_MODE == 'local') {
+                sh """
+                    CNAME='${env.CONTAINER_NAME}'
+                    IMG='${env.IMAGE_NAME}'
+                    HPORT='${env.PORT}'
+                    CPORT='${env.CONTAINER_PORT}'
+
+                    docker stop "\$CNAME" 2>/dev/null || true
+                    docker rm -f "\$CNAME" 2>/dev/null || true
+
+                    docker run -d \
+                      --name "\$CNAME" \
+                      --restart unless-stopped \
+                      -p 0.0.0.0:\${HPORT}:\${CPORT} \
+                      "\$IMG"
+                """
+
+                echo "[META] URL=http://${env.LOCAL_HOST}:${env.PORT}"
+            } 
+            else {
+                sh """
+                    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
+                      '${env.AWS_SSH_USER}'@'${env.AWS_HOST}' bash -s <<'ENDSSH'
+
 docker pull '${env.IMAGE_NAME}'
 docker stop  '${env.CONTAINER_NAME}' 2>/dev/null || true
 docker rm -f '${env.CONTAINER_NAME}' 2>/dev/null || true
-docker run -d \\
-  --name    '${env.CONTAINER_NAME}' \\
-  --restart unless-stopped \\
-  -p 0.0.0.0:80:'${env.CONTAINER_PORT}' \\
+
+docker run -d \
+  --name '${env.CONTAINER_NAME}' \
+  --restart unless-stopped \
+  -p 0.0.0.0:80:'${env.CONTAINER_PORT}' \
   '${env.IMAGE_NAME}'
+
 ENDSSH
-                        """
-                        echo "[META] URL=http://${env.AWS_HOST}"
-                    }
-                    echo "[STAGE_SUCCESS] Deploy"
-                }
+                """
+
+                echo "[META] URL=http://${env.AWS_HOST}"
             }
+
+            echo "[STAGE_SUCCESS] Deploy"
         }
+    }
+}
 
         // ─────────────────────────────────────────────────────────────────────
         stage('Verify') {
