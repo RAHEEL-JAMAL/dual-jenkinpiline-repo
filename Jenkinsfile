@@ -1831,19 +1831,19 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-     stage('Build Image') {
+    stage('Build Image') {
     steps {
         script {
             echo "[STAGE_START] Build Image"
 
             sh """
-                # Try using local cache only (no failing remote pull)
-                docker image inspect $IMAGE_NAME > /dev/null 2>&1 || echo "No cache image found"
+                docker image inspect \$IMAGE_NAME > /dev/null 2>&1 || echo "No cache image found"
 
                 docker build \
-                    -f "$PKG_ROOT/Dockerfile" \
-                    -t "$IMAGE_NAME" \
-                    "$PKG_ROOT/"
+                    --network host \
+                    -f "\$PKG_ROOT/Dockerfile" \
+                    -t "\$IMAGE_NAME" \
+                    "\$PKG_ROOT/"
             """
 
             echo "[STAGE_SUCCESS] Build Image"
