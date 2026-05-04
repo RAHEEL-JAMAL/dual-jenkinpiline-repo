@@ -655,35 +655,79 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Input Repo') {
-            steps {
-                script {
-                    echo "[STAGE_START] Input Repo"
-                    def repoUrl = params.REPO_URL?.trim()
-                    def appName = params.APP_NAME?.trim()
-                    if (!repoUrl) error('REPO_URL is required')
-                    if (!appName) error('APP_NAME is required')
+        // stage('Input Repo') {
+        //     steps {
+        //         script {
+        //             echo "[STAGE_START] Input Repo"
+        //             def repoUrl = params.REPO_URL?.trim()
+        //             def appName = params.APP_NAME?.trim()
+        //             if (!repoUrl) error('REPO_URL is required')
+        //             if (!appName) error('APP_NAME is required')
 
-                    def appId = sh(
-                        script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
-                        returnStdout: true
-                    ).trim()
+        //             def appId = sh(
+        //                 script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
+        //                 returnStdout: true
+        //             ).trim()
 
-                    env.REPO_URL       = repoUrl
-                    env.APP_NAME       = appName
-                    env.APP_ID         = appId
-                    env.CONTAINER_NAME = "app-${appId}"
-                    env.IMAGE_NAME     = "${DOCKERHUB_USER}/app-${appId}:latest"
-                    env.PKG_ROOT       = 'app'
-                    env.CONTAINER_PORT = '3000'
+        //             env.REPO_URL       = repoUrl
+        //             env.APP_NAME       = appName
+        //             env.APP_ID         = appId
+        //             env.CONTAINER_NAME = "app-${appId}"
+        //             env.IMAGE_NAME     = "${DOCKERHUB_USER}/app-${appId}:latest"
+        //             env.PKG_ROOT       = 'app'
+        //             env.CONTAINER_PORT = '3000'
 
-                    echo "[META] APP_ID=${appId}"
-                    echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
-                    echo "[STAGE_SUCCESS] Input Repo"
-                }
-            }
+        //             echo "[META] APP_ID=${appId}"
+        //             echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
+        //             echo "[STAGE_SUCCESS] Input Repo"
+        //         }
+        //     }
+        // }
+   stage('Input Repo') {
+    steps {
+        script {
+            echo "[STAGE_START] Input Repo"
+
+            def repoUrl = params.REPO_URL?.trim()
+            def appName = params.APP_NAME?.trim()
+
+            if (!repoUrl) error('REPO_URL is required')
+            if (!appName) error('APP_NAME is required')
+
+            // Generate unique ID from repo
+            def appId = sh(
+                script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
+                returnStdout: true
+            ).trim()
+
+            // ✅ sanitize app name (VERY IMPORTANT for Docker safety)
+            def safeAppName = appName.toLowerCase().replaceAll(/[^a-z0-9-_]/, '-')
+
+            // store values globally
+            env.REPO_URL = repoUrl
+            env.APP_NAME = safeAppName
+            env.APP_ID   = appId
+
+            // ✅ FIXED: readable container name
+            env.CONTAINER_NAME = "${safeAppName}-${appId}"
+
+            // ✅ FIXED: readable docker image name
+            env.IMAGE_NAME = "${DOCKERHUB_USER}/${safeAppName}-${appId}:latest"
+
+            env.PKG_ROOT = 'app'
+            env.CONTAINER_PORT = '3000'
+
+            echo "[META] APP_NAME=${env.APP_NAME}"
+            echo "[META] APP_ID=${appId}"
+            echo "[META] CONTAINER_NAME=${env.CONTAINER_NAME}"
+            echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
+
+            echo "[STAGE_SUCCESS] Input Repo"
         }
+    }
+}
 
+        
         // ─────────────────────────────────────────────────────────────────────
         stage('Select Deploy Mode') {
             steps {
