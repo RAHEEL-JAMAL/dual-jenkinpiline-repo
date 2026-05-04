@@ -1206,25 +1206,25 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-       stage('Build Image') {
+      stage('Build Image') {
     steps {
         script {
             echo "[STAGE_START] Build Image"
 
-            // 🚀 FIX: removed --no-cache (major speed improvement)
-            sh '''
+            // Enable build cache reuse (safe + speeds up 5–10x after first build)
+            sh """
+                docker pull ${IMAGE_NAME} || true
                 docker build \
-                  --network host \
-                  -f "$PKG_ROOT/Dockerfile" \
-                  -t "$IMAGE_NAME" \
-                  "$PKG_ROOT/"
-            '''
+                    -f "$PKG_ROOT/Dockerfile" \
+                    -t "$IMAGE_NAME" \
+                    --cache-from "$IMAGE_NAME" \
+                    "$PKG_ROOT/"
+            """
 
             echo "[STAGE_SUCCESS] Build Image"
         }
     }
 }
-
         // ─────────────────────────────────────────────────────────────────────
         stage('Image Scan (Trivy)') {
             steps {
