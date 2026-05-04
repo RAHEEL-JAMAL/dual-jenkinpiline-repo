@@ -707,7 +707,7 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Allocate Port') {
+        stage('Allocate Safe Port') {
             steps {
                 script {
                     echo "[STAGE_START] Allocate Safe Port"
