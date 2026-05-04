@@ -654,35 +654,7 @@ pipeline {
             }
         }
 
-        // ─────────────────────────────────────────────────────────────────────
-        // stage('Input Repo') {
-        //     steps {
-        //         script {
-        //             echo "[STAGE_START] Input Repo"
-        //             def repoUrl = params.REPO_URL?.trim()
-        //             def appName = params.APP_NAME?.trim()
-        //             if (!repoUrl) error('REPO_URL is required')
-        //             if (!appName) error('APP_NAME is required')
-
-        //             def appId = sh(
-        //                 script: "printf '%s' '${repoUrl}' | md5sum | cut -c1-6",
-        //                 returnStdout: true
-        //             ).trim()
-
-        //             env.REPO_URL       = repoUrl
-        //             env.APP_NAME       = appName
-        //             env.APP_ID         = appId
-        //             env.CONTAINER_NAME = "app-${appId}"
-        //             env.IMAGE_NAME     = "${DOCKERHUB_USER}/app-${appId}:latest"
-        //             env.PKG_ROOT       = 'app'
-        //             env.CONTAINER_PORT = '3000'
-
-        //             echo "[META] APP_ID=${appId}"
-        //             echo "[META] IMAGE_NAME=${env.IMAGE_NAME}"
-        //             echo "[STAGE_SUCCESS] Input Repo"
-        //         }
-        //     }
-        // }
+        
    stage('Input Repo') {
     steps {
         script {
@@ -750,28 +722,93 @@ pipeline {
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Allocate Safe Port') {
-            steps {
-                script {
-                    echo "[STAGE_START] Allocate Safe Port"
-                    if (env.DEPLOY_MODE == 'local') {
-                        def usedRaw = sh(
-                            script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]{2,5}\' | sort -un || true',
-                            returnStdout: true
-                        ).trim()
-                        def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
-                        def port = 3000
-                        while (usedPorts.contains(port.toString())) { port++ }
-                        env.PORT = port.toString()
-                    } else {
-                        env.PORT = '80'
-                    }
-                    echo "[META] PORT=${env.PORT}"
-                    echo "[STAGE_SUCCESS] Allocate Safe Port"
-                }
-            }
-        }
+        // stage('Allocate Safe Port') {
+        //     steps {
+        //         script {
+        //             echo "[STAGE_START] Allocate Safe Port"
+        //             if (env.DEPLOY_MODE == 'local') {
+        //                 def usedRaw = sh(
+        //                     script: 'docker ps --format \'{{.Ports}}\' | grep -oE \'[0-9]{2,5}\' | sort -un || true',
+        //                     returnStdout: true
+        //                 ).trim()
+        //                 def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
+        //                 def port = 3000
+        //                 while (usedPorts.contains(port.toString())) { port++ }
+        //                 env.PORT = port.toString()
+        //             } else {
+        //                 env.PORT = '80'
+        //             }
+        //             echo "[META] PORT=${env.PORT}"
+        //             echo "[STAGE_SUCCESS] Allocate Safe Port"
+        //         }
+        //     }
+        // }
 
+
+        stage('Allocate Safe Port') {
+    steps {
+        script {
+            echo "[STAGE_START] Allocate Safe Port"
+
+            // ✅ VERCEL-LIKE PORT MAP (STACK → DEFAULT PORT)
+            def portMap = [
+                vite: "80",
+                react: "80",
+                cra: "80",
+                nextjs: "80",
+                frontend: "80",
+
+                node: "3000",
+                backend: "3000",
+                "node-server": "3000",
+
+                python: "3000",
+                flask: "5000",
+                fastapi: "8000",
+                django: "8000",
+
+                java: "8080",
+                spring: "8080",
+
+                go: "3000",
+                php: "80"
+            ]
+
+            def stack = env.STACK ?: "backend"
+
+            def basePort = portMap[stack] ?: "3000"
+
+            if (env.DEPLOY_MODE == 'local') {
+
+                // 🔍 get already used ports from docker
+                def usedRaw = sh(
+                    script: 'docker ps --format "{{.Ports}}" | grep -oE "[0-9]{2,5}" | sort -un || true',
+                    returnStdout: true
+                ).trim()
+
+                def usedPorts = usedRaw ? usedRaw.tokenize('\n').collect { it.trim() } : []
+
+                def port = basePort.toInteger()
+
+                // 🔁 avoid conflicts
+                while (usedPorts.contains(port.toString())) {
+                    port++
+                }
+
+                env.PORT = port.toString()
+
+            } else {
+                env.PORT = "80"
+            }
+
+            echo "[META] STACK=${stack}"
+            echo "[META] BASE_PORT=${basePort}"
+            echo "[META] FINAL_PORT=${env.PORT}"
+
+            echo "[STAGE_SUCCESS] Allocate Safe Port"
+        }
+    }
+}
         // ─────────────────────────────────────────────────────────────────────
         stage('Clone Repo') {
             steps {
