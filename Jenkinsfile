@@ -2207,4 +2207,4 @@ ENDSSH
             echo '[DEPLOY_FAILED]'
         }
     }
-}
+
