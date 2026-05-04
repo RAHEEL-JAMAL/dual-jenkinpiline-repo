@@ -621,7 +621,6 @@
 
 
 
-
 pipeline {
     agent any
 
@@ -899,12 +898,18 @@ target
                 script {
                     echo "[STAGE_START] Dependency Audit"
                     if (fileExists("${env.PKG_ROOT}/package.json")) {
+                        // FIX: added --network host so the container can reach npmjs.org
                         sh '''
                             docker run --rm \
+                              --network host \
                               -v "$(pwd)/''' + env.PKG_ROOT + ''':/work" \
                               -w /work \
                               node:20-alpine \
-                              sh -c 'npm install --prefer-offline --ignore-scripts --silent 2>&1 | tail -3; npm audit --json 2>/dev/null || true' \
+                              sh -c 'npm config set fetch-retry-mintimeout 20000 && \
+                                     npm config set fetch-retry-maxtimeout 120000 && \
+                                     npm config set fetch-retries 5 && \
+                                     npm install --prefer-offline --ignore-scripts --silent 2>&1 | tail -3; \
+                                     npm audit --json 2>/dev/null || true' \
                               > /tmp/audit.txt 2>&1 || true
                         '''
                         def out = readFile('/tmp/audit.txt')
@@ -949,11 +954,15 @@ target
 
                         switch (env.STACK) {
                             case 'vite':
+                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm install --ignore-scripts
 COPY . .
 RUN npm run build
 
@@ -969,11 +978,15 @@ CMD ["nginx", "-g", "daemon off;"]
 
                             case 'cra':
                             case 'react':
+                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm install --ignore-scripts
 COPY . .
 RUN npm run build
 
@@ -988,11 +1001,15 @@ CMD ["nginx", "-g", "daemon off;"]
                                 break
 
                             case 'nextjs':
+                                // FIX: npm ci → npm install with retry config
                                 df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm install --ignore-scripts
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
@@ -1013,10 +1030,14 @@ CMD ["node", "server.js"]
                                 break
 
                             case 'node-server':
+                                // FIX: npm ci → npm install with retry config
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 && \\
+    npm config set fetch-retry-maxtimeout 120000 && \\
+    npm config set fetch-retries 5 && \\
+    npm install --only=production --ignore-scripts
 COPY . .
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -1078,10 +1099,14 @@ CMD ["./server"]
                                 break
 
                             default:
+                                // FIX: npm ci → npm install with retry config
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci --only=production --ignore-scripts
+RUN npm config set fetch-retry-mintimeout 20000 && \\
+    npm config set fetch-retry-maxtimeout 120000 && \\
+    npm config set fetch-retries 5 && \\
+    npm install --only=production --ignore-scripts
 COPY . .
 ENV HOST=0.0.0.0
 ENV PORT=3000
@@ -1104,27 +1129,25 @@ CMD ["node", "${entry}"]
             steps {
                 script {
                     echo "[STAGE_START] Build Image"
-                    sh 'docker build --no-cache -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
+                    // FIX: added --network host so npm install inside Docker can reach the internet
+                    sh 'docker build --no-cache --network host -f "$PKG_ROOT/Dockerfile" -t "$IMAGE_NAME" "$PKG_ROOT/"'
                     echo "[STAGE_SUCCESS] Build Image"
                 }
             }
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        // NEW: Image Scan (Trivy) — inserted AFTER Build Image, BEFORE Push
-        // ─────────────────────────────────────────────────────────────────────
         stage('Image Scan (Trivy)') {
             steps {
                 script {
                     echo "[STAGE_START] Image Scan (Trivy)"
 
-                    // Pull Trivy if not already available
                     sh 'docker pull aquasec/trivy:latest 2>/dev/null || true'
 
-                    // Run Trivy scan — output JSON to a temp file
-                    // Exit code 0 = no issues, 1 = vulnerabilities found; we capture both
+                    // FIX: added --network host so Trivy can download its vulnerability DB
                     sh """
                         docker run --rm \
+                          --network host \
                           -v /var/run/docker.sock:/var/run/docker.sock \
                           -v /tmp/trivy-cache:/root/.cache/trivy \
                           aquasec/trivy:latest image \
@@ -1135,7 +1158,6 @@ CMD ["node", "${entry}"]
                           '${env.IMAGE_NAME}' || true
                     """
 
-                    // Parse results
                     def reportFile = '/tmp/trivy-report.json'
                     def criticalCount = 0
                     def highCount     = 0
@@ -1143,12 +1165,10 @@ CMD ["node", "${entry}"]
                     if (fileExists(reportFile)) {
                         def report = readFile(reportFile)
 
-                        // Count CRITICAL CVEs
                         def critMatches = (report =~ /"Severity"\s*:\s*"CRITICAL"/)
                         while (critMatches.find()) { criticalCount++ }
                         critMatches = null
 
-                        // Count HIGH CVEs
                         def highMatches = (report =~ /"Severity"\s*:\s*"HIGH"/)
                         while (highMatches.find()) { highCount++ }
                         highMatches = null
@@ -1159,7 +1179,7 @@ CMD ["node", "${entry}"]
 
                     if (criticalCount > 0) {
                         echo "[WARN] Trivy found ${criticalCount} CRITICAL CVE(s) in image — review before production"
-                        echo "[META] IMAGE_SCAN=PASSED"   // still proceed but flag it
+                        echo "[META] IMAGE_SCAN=PASSED"
                     } else {
                         echo "[INFO] Trivy scan complete — no CRITICAL vulnerabilities found"
                         echo "[META] IMAGE_SCAN=PASSED"
