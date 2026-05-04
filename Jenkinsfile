@@ -1831,18 +1831,18 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-      stage('Build Image') {
+     stage('Build Image') {
     steps {
         script {
             echo "[STAGE_START] Build Image"
 
-            // Enable build cache reuse (safe + speeds up 5–10x after first build)
             sh """
-                docker pull ${IMAGE_NAME} || true
+                # Try using local cache only (no failing remote pull)
+                docker image inspect $IMAGE_NAME > /dev/null 2>&1 || echo "No cache image found"
+
                 docker build \
                     -f "$PKG_ROOT/Dockerfile" \
                     -t "$IMAGE_NAME" \
-                    --cache-from "$IMAGE_NAME" \
                     "$PKG_ROOT/"
             """
 
