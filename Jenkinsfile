@@ -708,7 +708,7 @@ ENDSSH
         echo '[DEPLOY_FAILED]'
     }
 }
-
+}
 
 // pipeline {
 //     agent any
