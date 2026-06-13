@@ -3,10 +3,7 @@
 pipeline {
     agent any
 
-        options {
-        skipDefaultCheckout(true)
-        disableConcurrentBuilds()
-        }
+       
     parameters {
         string(name: 'REPO_URL',      defaultValue: '', description: 'GitHub repo URL to deploy')
         string(name: 'APP_NAME',      defaultValue: '', description: 'Unique app name')
