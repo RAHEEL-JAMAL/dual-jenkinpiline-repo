@@ -693,9 +693,9 @@ ENDSSH
 
     } 
 
-   post {
+ post {
     always {
-        node {
+        node('built-in') {
             sh 'docker rmi "$IMAGE_NAME" 2>/dev/null || true'
             sh 'rm -rf app /tmp/trivy-report.json || true'
             echo '[INFO] Workspace cleaned'
