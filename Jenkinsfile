@@ -444,7 +444,31 @@ CMD ["node", "${entry}"]
 """
                                 env.CONTAINER_PORT = '3000'
                                 break
-
+                            
+                            case 'php':
+                                df = '''\
+FROM php:8.2-apache
+WORKDIR /var/www/html
+COPY . .
+RUN chown -R www-data:www-data /var/www/html
+EXPOSE 80
+CMD ["apache2-foreground"]
+'''
+                                env.CONTAINER_PORT = '80'
+                                break
+                
+                            case 'static':
+                                df = '''\
+FROM nginx:alpine
+RUN rm /etc/nginx/conf.d/default.conf
+COPY . /usr/share/nginx/html
+RUN printf 'server{listen 80;root /usr/share/nginx/html;index index.html;location /{try_files $uri $uri/ /index.html;}}' > /etc/nginx/conf.d/app.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+'''
+                                env.CONTAINER_PORT = '80'
+                                break
+                           
                             case 'python':
                                 df = """FROM python:3.11-slim
 WORKDIR /app
@@ -452,11 +476,11 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 ENV HOST=0.0.0.0
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=8000
+EXPOSE 8000
 CMD ["python", "${entry}"]
 """
-                                env.CONTAINER_PORT = '3000'
+                                env.CONTAINER_PORT = '8000'
                                 break
 
                             case 'java':
@@ -604,13 +628,15 @@ CMD ["node", "${entry}"]
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Deploy') {
+       stage('Deploy') {
             steps {
                 script {
                     echo "[STAGE_START] Deploy"
 
                     def isFrontend = (env.STACK == 'vite' || env.STACK == 'react' || env.STACK == 'cra' || env.STACK == 'nextjs')
-                    env.CONTAINER_PORT = isFrontend ? "80" : "3000"
+                    def isPython   = (env.STACK == 'python' || env.STACK == 'fastapi' || env.STACK == 'django')
+                    def isNginx    = (env.STACK == 'php' || env.STACK == 'static')
+                    env.CONTAINER_PORT = isFrontend ? "80" : isNginx ? "80" : isPython ? "8000" : "3000"
 
                     echo "[META] FORCE_CONTAINER_PORT=${env.CONTAINER_PORT}"
 
