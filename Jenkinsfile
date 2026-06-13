@@ -436,14 +436,14 @@ CMD ["node", "server.js"]
                                 env.CONTAINER_PORT = '3000'
                                 break
 
-                            case 'node-server':
+                           case 'node-server':
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm config set fetch-retry-mintimeout 20000 && \\
     npm config set fetch-retry-maxtimeout 120000 && \\
     npm config set fetch-retries 5 && \\
-    npm install --only=production --ignore-scripts
+    npm install --only=production --ignore-scripts --legacy-peer-deps
 COPY . .
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
@@ -527,14 +527,14 @@ CMD ["./server"]
                                 env.CONTAINER_PORT = '3000'
                                 break
 
-                            default:
+                           default:
                                 df = """FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm config set fetch-retry-mintimeout 20000 && \\
     npm config set fetch-retry-maxtimeout 120000 && \\
     npm config set fetch-retries 5 && \\
-    npm install --only=production --ignore-scripts
+    npm install --only=production --ignore-scripts --legacy-peer-deps
 COPY . .
 ENV HOST=0.0.0.0
 ENV PORT=3000
@@ -543,7 +543,6 @@ CMD ["node", "${entry}"]
 """
                                 env.CONTAINER_PORT = '3000'
                         }
-
                         writeFile file: dfPath, text: df
                         echo "[INFO] Generated Dockerfile for stack: ${env.STACK}"
                     }
@@ -551,7 +550,6 @@ CMD ["node", "${entry}"]
                 }
             }
         }
-
         // ─────────────────────────────────────────────────────────────────────
         stage('Build Image') {
             steps {
