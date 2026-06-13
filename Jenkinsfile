@@ -342,7 +342,7 @@ target
                     echo "[STAGE_START] Create Dockerfile"
                     def dfPath = "${env.PKG_ROOT}/Dockerfile"
 
-                    if (fileExists(dfPath)) {
+                    if (false && fileExists(dfPath)) {
                         echo '[INFO] Dockerfile already exists — using repo Dockerfile'
                         def dfContent = readFile(dfPath)
                         if      (dfContent.contains('EXPOSE 80'))   { env.CONTAINER_PORT = '80' }
