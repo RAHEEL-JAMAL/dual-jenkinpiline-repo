@@ -229,11 +229,10 @@ target
         }
 
         // ─────────────────────────────────────────────────────────────────────
-        stage('Detect Stack') {
+       stage('Detect Stack') {
             steps {
                 script {
                     echo "[STAGE_START] Detect Stack"
-
                     def stack   = 'node'
                     def pkgRoot = 'app'
                     def entry   = 'index.js'
@@ -248,7 +247,6 @@ target
 
                     if (fileExists("${pkgRoot}/package.json")) {
                         def pkg = readFile("${pkgRoot}/package.json")
-
                         if      (pkg.contains('"vite"'))                                                            stack = 'vite'
                         else if (pkg.contains('"next"'))                                                            stack = 'nextjs'
                         else if (pkg.contains('"react-scripts"'))                                                   stack = 'cra'
@@ -267,6 +265,10 @@ target
                             }
                         }
 
+                    } else if (fileExists("${pkgRoot}/manage.py")) {
+                        stack = 'python'
+                        entry = 'manage.py'
+
                     } else if (fileExists("${pkgRoot}/requirements.txt")) {
                         stack = 'python'
                         for (ep in ['app.py', 'main.py', 'run.py', 'server.py']) {
@@ -280,6 +282,14 @@ target
                     } else if (fileExists("${pkgRoot}/go.mod")) {
                         stack = 'go'
                         entry = 'main.go'
+
+                    } else if (fileExists("${pkgRoot}/index.php") || fileExists("${pkgRoot}/composer.json")) {
+                        stack = 'php'
+                        entry = 'index.php'
+
+                    } else if (fileExists("${pkgRoot}/index.html") || fileExists("${pkgRoot}/index.htm")) {
+                        stack = 'static'
+                        entry = 'index.html'
                     }
 
                     env.STACK    = stack
@@ -293,7 +303,6 @@ target
                 }
             }
         }
-
         // ─────────────────────────────────────────────────────────────────────
         stage('Dependency Audit') {
             steps {
@@ -469,16 +478,15 @@ CMD ["nginx", "-g", "daemon off;"]
                                 env.CONTAINER_PORT = '80'
                                 break
                            
-                            case 'python':
+                           case 'python':
                                 df = """FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null || pip install django gunicorn
 ENV HOST=0.0.0.0
 ENV PORT=8000
 EXPOSE 8000
-CMD ["python", "${entry}"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
 """
                                 env.CONTAINER_PORT = '8000'
                                 break
