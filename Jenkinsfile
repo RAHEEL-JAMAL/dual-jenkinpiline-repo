@@ -693,18 +693,19 @@ ENDSSH
 
     } 
 
-    post {
-        always {
+   post {
+    always {
+        node {
             sh 'docker rmi "$IMAGE_NAME" 2>/dev/null || true'
             sh 'rm -rf app /tmp/trivy-report.json || true'
             echo '[INFO] Workspace cleaned'
         }
-        success {
-            echo "[DEPLOY_SUCCESS] ${env.IMAGE_NAME} → port ${env.PORT}"
-        }
-        failure {
-            echo '[DEPLOY_FAILED]'
-        }
+    }
+    success {
+        echo "[DEPLOY_SUCCESS] ${env.IMAGE_NAME} → port ${env.PORT}"
+    }
+    failure {
+        echo '[DEPLOY_FAILED]'
     }
 }
 
