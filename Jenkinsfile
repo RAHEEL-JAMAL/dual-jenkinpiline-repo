@@ -409,14 +409,14 @@ CMD ["nginx", "-g", "daemon off;"]
                                 break
 
                             case 'nextjs':
-                                df = '''\
+    df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm config set fetch-retries 5 && \
-    npm install --ignore-scripts
+    npm install --ignore-scripts --legacy-peer-deps
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
@@ -433,8 +433,8 @@ COPY --from=builder /app/.next/static ./.next/static
 EXPOSE 3000
 CMD ["node", "server.js"]
 '''
-                                env.CONTAINER_PORT = '3000'
-                                break
+    env.CONTAINER_PORT = '3000'
+    break
 
                            case 'node-server':
                                 df = """FROM node:20-alpine
