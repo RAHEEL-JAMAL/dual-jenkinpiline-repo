@@ -408,7 +408,7 @@ CMD ["nginx", "-g", "daemon off;"]
                                 env.CONTAINER_PORT = '80'
                                 break
 
-                         case 'nextjs':
+                        case 'nextjs':
     df = '''\
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -419,16 +419,16 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
     npm install --ignore-scripts --legacy-peer-deps
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN npm run build && mkdir -p /app/public
 
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/public ./public
 EXPOSE 3000
 CMD ["node_modules/.bin/next", "start", "-p", "3000"]
 '''
